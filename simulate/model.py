@@ -3,9 +3,10 @@
 from weakref import WeakKeyDictionary
 from collections import namedtuple
 from contextlib import contextmanager, ExitStack
-from functiools import wraps
+from functools import wraps
 
 from .engine import NumbaEngine
+from types import MethodType
 
 __all__ = ['Model', 'step']
 
@@ -35,6 +36,24 @@ class Specs:
         self.specs = {}
         self._resolve = None
         self._activated = [{}]
+
+    def __contains__(self, name):
+        return name in self.specs
+
+    def __iter__(self):
+        return iter(self.specs)
+
+    def __getitem__(self, name):
+        return self.specs[name]
+
+    def keys(self):
+        return self.specs.keys()
+
+    def values(self):
+        return self.specs.values()
+
+    def items(self):
+        return self.specs.items()
 
     def resolve(self, name, spec):
         """
@@ -88,6 +107,51 @@ class Specs:
         """Return the current active spec-dict."""
         return self._activated[-1]
 
+    def validate(self, name, spec, prev):
+        if spec is ...:
+            if prev is None:
+                msg = "Invalid specs elipsis for {!r}, no previous definition."
+                raise TypeError(msg.format(name))
+            else:
+                return prev
+
+        if isinstance(spec, dict) and (prev is None or isinstance(prev, dict)):
+            result = {}
+            for key, item in spec.items():
+                result[key] = self.validate(key, item, (prev or {}).get(key))
+            return result
+
+        if isinstance(spec, list):
+            if not spec:
+                msg = "List spec should not be empty for {!r}."
+                raise TypeError(msg.format(name))
+
+            fst = spec[0]
+            if not all(fst == s for s in spec):
+                msg = "List spec should only contain single type for {!r}."
+                raise TypeError(msg.format(name))
+
+            prv = prev[0] if prev else None
+            size = max(len(spec), len(prev or []))
+            return [self.validate(None, fst, prv)] * size
+
+        if isinstance(prev, MethodType):
+            if spec.__name__ != prev.__name__:
+                msg = "Method spec {} with different methods {} previously {}."
+                raise TypeError(msg.format(name, spec.__name__, prev.__name__))
+
+            if spec.__self__ != prev.__self__:
+                msg = "Method spec {} on different objects {} previously {}."
+                raise TypeError(msg.format(name, spec.__self__, prev.__self__))
+
+            return spec
+
+        if prev is not None and spec != prev:
+            msg = "Conflicting type definition of {} with {}, previously {}."
+            raise TypeError(msg.format(name, spec, prev))
+
+        return spec
+
     def __call__(self, return_namedtuple=None, **specs):
         """
         Register and validate the given names with the supplied specification.
@@ -99,24 +163,24 @@ class Specs:
         @return
             acccessor(s) to the spec(s)
         """
-        # TODO check specs
-        specs = {name: self.specs[name] if spec is ... else spec
-                 for name, spec in specs.items()}
-
+        results = {}
         for name, spec in specs.items():
-            if isinstance(spec, dict):
-                self.specs.setdefault(name, {}).update(spec)
-                self.active.setdefault(name, {}).update(spec)
-            else:
-                self.specs[name] = spec
-                self.active[name] = spec
+            prev = self.specs.get(name)
+            result = results[name] = self.validate(name, spec, prev)
 
-        if return_namedtuple or len(specs) > 1:
-            Access = namedtuple('Access', list(specs))
+            if isinstance(result, dict):
+                self.specs.setdefault(name, {}).update(result)
+                self.active.setdefault(name, {}).update(result)
+            else:
+                self.specs[name] = result
+                self.active[name] = result
+
+        if return_namedtuple or len(results) > 1:
+            Access = namedtuple('Access', list(results))
             return Access(**{name: self.resolve(name, spec)
-                             for name, spec in specs.items()})
+                             for name, spec in results.items()})
         else:
-            (name, spec), = specs.items()
+            (name, spec), = results.items()
             return self.resolve(name, spec)
 
 
@@ -353,7 +417,7 @@ class Model:
 
     def graph(self, **attrs):
         """Create a grpahivz graph out of the steps call tree."""
-        import graphviz as gv
+        gv = __import__("graphviz")
 
         graph = gv.Digraph()
         graph.attr(rankdir='LR')

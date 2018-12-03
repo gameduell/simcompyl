@@ -205,6 +205,7 @@ class NumbaEngine(Engine):
                 # XXX check if all items define same bound
                 layout.append(name)
                 for n, ts in spec.items():
+                    assert len(ts) == bound
                     layout.extend((name, n) for t in ts)
             else:
                 layout.append(name)

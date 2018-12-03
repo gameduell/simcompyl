@@ -3,3 +3,5 @@ simulate.egg-info
 __pycache__
 .ropeproject
 .ipynb_checkpoints/
+.pytest_cache
+.mypy_cache

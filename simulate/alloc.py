@@ -4,8 +4,8 @@ import contextlib
 
 from itertools import chain
 
-__all__ = ['Allocation', 'Param', 
-           'Uniform', 'Bernoulli', 
+__all__ = ['Allocation', 'Param',
+           'Uniform', 'Bernoulli',
            'Continuous', 'Normal', 'Exponential']
 
 class Allocation:
@@ -15,7 +15,7 @@ class Allocation:
     def __init__(self, **kws):
         for name, value in kws.items():
             setattr(self, name, value)
-            
+
     @contextlib.contextmanager
     def __call__(self, **kws):
         vals = {}
@@ -27,19 +27,19 @@ class Allocation:
         finally:
             for name, value in vals.items():
                 setattr(self, name, value)
-        
+
     def __add__(self, other):
         if isinstance(other, Allocation):
             return CombinedAllocation(getattr(self, '_allocs', (self,)) + getattr(other, '_allocs', (other,)))
         else:
             return NotImplemented
-    
+
     def keys(self):
         for name in dir(type(self)):
             desc = getattr(type(self), name)
             if isinstance(desc, Param):
                 yield name
-                
+
     def values(self):
         for name in self.keys():
             yield getattr(self, name)
@@ -66,7 +66,7 @@ class CombinedAllocation(Allocation):
         for a in self._allocs:
             yield from a.keys()
 
-        return chain(a.keys() for a in self._allocs) 
+        return chain(a.keys() for a in self._allocs)
     def __getattr__(self, name):
         for alloc in self._allocs:
             if hasattr(alloc, name):
@@ -86,16 +86,17 @@ class CombinedAllocation(Allocation):
 
     def __delattr__(self, name):
         if name.startswith('_'):
-            super().__delattr__(name, value)
+            super().__delattr__(name)
 
         for alloc in self._allocs:
             if hasattr(alloc, name):
                 return delattr(alloc, name)
 
-        super().__delattr__(name, value)
+        super().__delattr__(name)
 
     def __dir__(self):
-        return super().__dir__() + [d for alloc in self._allocs for d in dir(alloc)]
+        return (super().__dir__()
+                + [d for alloc in self._allocs for d in dir(alloc)])
 
     def __repr__(self):
         result = ""
@@ -113,15 +114,15 @@ class Param:
         self.upper = upper
         self.step = step
         self.options = options
-        
+
     @property
     def arity(self):
         if isinstance(self.default, dict) and isinstance(next(iter(self.default.values())), list):
             return sum(len(vs) for vs in self.default.values())
-        
+
         if isinstance(self.default, (list, dict, tuple)):
             return len(self.default)
-        
+
         return 1
 
     def value(self, instance):
@@ -141,8 +142,8 @@ class Param:
 
     def __repr__(self):
         return 'Param({!r}, {!r})'.format(self.text, self.default)
-    
-    
+
+
 class Value:
     def __init__(self, param, alloc):
         self.param = param
@@ -165,8 +166,8 @@ class Value:
 
     def __repr__(self):
         return '{} = {!r}'.format(self.param.text, self.value)
-    
-    
+
+
 class Distribution(Param):
     pass
 
@@ -174,17 +175,17 @@ class Distribution(Param):
 class Uniform(Distribution):
     def __init__(self, text, low, high, **kws):
         super().__init__(text, (low, high), **kws)
-        
+
     def sample(self):
         def impl(low, high):
             return np.random.randint(low, high)
         return impl
-    
-    
+
+
 class Bernoulli(Distribution):
     def __init__(self, text, p, **kws):
         super().__init__(text, p, **kws)
-        
+
     def sample(self):
         def impl(p):
             return np.random.binomial(1, p)
@@ -194,29 +195,28 @@ class Bernoulli(Distribution):
 class Continuous(Distribution):
     def __init__(self, text, low, high, **kws):
         super().__init__(text, (low, high), **kws)
-        
+
     def sample(self):
         def impl(low, high):
             return np.random.uniform(low, high)
         return impl
-    
-    
+
+
 class Normal(Distribution):
     def __init__(self, text, loc, scale, **kws):
         super().__init__(text, {'loc': loc, 'scale': scale}, **kws)
-        
+
     def sample(self):
         def impl(loc, scale):
             return np.random.normal(loc, scale)
         return impl
-    
-    
+
+
 class Exponential(Distribution):
     def __init__(self, text, scale, **kws):
         super().__init__(text, scale, **kws)
-        
+
     def sample(self):
         def impl(scale):
             return np.random.exponential(scale)
         return impl
-    

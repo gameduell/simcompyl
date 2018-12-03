@@ -18,7 +18,7 @@ def test_activation():
     assert a == {'a1': 1, 'a2': 2}
     assert b == {'b1': 1.}
 
-    assert specs.specs == {'a1': 1, 'b1': 1., 'a2': 2}
+    assert dict(specs) == {'a1': 1, 'b1': 1., 'a2': 2}
 
 
 def test_resolve():
@@ -54,15 +54,31 @@ def test_resolve():
 def test_validation():
     specs = Specs()
 
-    specs(i=int, s=str, fs=[float])
+    specs(i=int, s=str, fs=[float]*4)
+    assert specs['i'] == int
+    assert specs['s'] == str
+    assert specs['fs'] == [float]*4
     specs(dct={'a': int, 'b': float})
+    assert specs['dct'] == {'a': int, 'b': float}
 
     specs(i=..., s=..., fs=..., dct=...)
+    assert specs['i'] == int
+    assert specs['s'] == str
+    assert specs['fs'] == [float]*4
+    assert specs['dct'] == {'a': int, 'b': float}
+
     specs(dct={'a': ..., 'b': ..., 'c': str})
+    assert specs.specs['dct'] == {'a': int, 'b': float, 'c': str}
 
     specs(i=int)
-    specs(s=str, fs=[float])
+    specs(s=str, fs=[float]*4)
     specs(dct={'b': float, 'd': [bool]})
+    assert specs.specs['dct'] == {'a': int, 'b': float, 'c': str, 'd': [bool]}
+
+    specs(fs=[float]*2)
+    assert specs['fs'] == [float]*4
+    specs(fs=[float]*6)
+    assert specs['fs'] == [float]*6
 
     with pytest.raises(TypeError):
         specs(b=...)
@@ -89,7 +105,7 @@ def test_validation():
 
     with pytest.raises(TypeError):
         specs(fs=[int])
-    assert specs['fs'] == [float]
+    assert specs['fs'] == [float]*6
 
     with pytest.raises(TypeError):
         specs(dct={'a': ..., 'c': bool})
@@ -119,24 +135,32 @@ def test_validate_methods():
         def baz():
             pass
 
-    specs(foo=Foo.foo)
-    assert specs.specs == {'foo': Foo.foo}
+    bar = Bar()
+    bar_ = Bar()
+    foo = super(Bar, bar)
+    baz = Baz()
 
-    specs(foo=Bar.foo)
-    assert specs.specs == {'foo': Bar.foo}
+    specs(foo=foo.foo, bar=foo.bar)
+    assert dict(specs) == {'foo': foo.foo, 'bar': foo.bar}
 
-    specs(bar=Bar.bar)
-    assert specs.specs == {'foo': Bar.foo, 'bar': Bar.bar}
+    specs(foo=...)
+    assert dict(specs) == {'foo': foo.foo, 'bar': foo.bar}
 
-    specs(baz=Bar.baz)
-    assert specs.specs == {'foo': Bar.foo, 'bar': Bar.bar, 'baz': Bar.baz}
+    specs(bar=bar.bar)
+    assert dict(specs) == {'foo': foo.foo, 'bar': bar.bar}
+
+    specs(baz=bar.baz)
+    assert dict(specs) == {'foo': foo.foo, 'bar': bar.bar, 'baz': bar.baz}
 
     with pytest.raises(TypeError):
-        specs(baz=Baz.baz)
+        specs(foo=foo.bar)
 
     with pytest.raises(TypeError):
-        specs(bar=Foo.bar)
+        specs(bar=bar_.bar)
+
+    with pytest.raises(TypeError):
+        specs(baz=baz.baz)
 
     specs(baz=...)
 
-    assert specs.specs == {'foo': Bar.foo, 'bar': Bar.bar, 'baz': Bar.baz}
+    assert dict(specs) == {'foo': foo.foo, 'bar': bar.bar, 'baz': bar.baz}
