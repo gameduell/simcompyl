@@ -1,0 +1,6 @@
+cmd: "py.test"
+name: "py.test"
+cwd: "{PROJECT_PATH}"
+errorMatch:
+    - "E\\s+(?<message>.*)\\n\\n(?<file>[\\/0-9a-zA-Z\\._]+):(?<line>\\d+):\\s+.+"
+    - "(?<file>[\\/0-9a-zA-Z\\._]+):(?<line>\\d+):(.*\n([^\n]*\n)+E\\s+)(?<message>.*)"
