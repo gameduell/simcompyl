@@ -4,9 +4,9 @@ from weakref import WeakKeyDictionary
 from collections import namedtuple
 from contextlib import contextmanager, ExitStack
 from functools import wraps
+from types import MethodType
 
 from .engine import NumbaEngine
-from types import MethodType
 
 __all__ = ['Model', 'step']
 
@@ -135,7 +135,9 @@ class Specs:
             size = max(len(spec), len(prev or []))
             return [self.validate(None, fst, prv)] * size
 
-        if isinstance(prev, MethodType):
+        if all(hasattr(prev, a) for a in ['__self__',
+                                          '__call__',
+                                          '__name__']):
             if spec.__name__ != prev.__name__:
                 msg = "Method spec {} with different methods {} previously {}."
                 raise TypeError(msg.format(name, spec.__name__, prev.__name__))
@@ -253,7 +255,7 @@ class Step:
     """
 
     def __init__(self, model, method):
-        self.model = model
+        self.__self__ = model
         self.method = method
 
         self.steps = {}
@@ -263,22 +265,38 @@ class Step:
         self.derives = {}
 
     @property
-    def name(self):
+    def __name__(self):
         """Return the name of the step."""
         return self.method.__name__
 
     @property
     def impl(self):
         """Return the underlying implementation registered in the model."""
-        return self.model.steps.specs[self.name]
+        return self.__self__.steps.specs[self.__name__]
 
     def __call__(self):
         """Return the specs accessor of the step."""
-        with self.model.activate(self):
+        with self.__self__.steps.activate(self.steps), \
+                self.__self__.state.activate(self.state), \
+                self.__self__.params.activate(self.params), \
+                self.__self__.random.activate(self.random), \
+                self.__self__.derives.activate(self.derives):
             impl = self.method()
+            impl.__self__ = self.__self__
+            impl.__name__ = self.__name__
             impl.__step__ = self
 
-        return self.model.steps(**{self.name: impl})
+        return self.__self__.steps(**{self.__name__: impl})
+
+
+class Impl:
+    def __init__(self, impl, step):
+        self.impl = impl
+        self.step = step
+
+    @property
+    def __name__(self):
+        return self.step.__name__
 
 
 class Model:
@@ -394,16 +412,6 @@ class Model:
             with ExitStack() as stack:
                 yield tuple([stack.enter_context(self.trace(t, **opts))
                              for t in traces])
-
-    @contextmanager
-    def activate(self, step):
-        """Activate the `Specs` context for the currently called step."""
-        with self.steps.activate(step.steps), \
-                self.state.activate(step.state), \
-                self.params.activate(step.params), \
-                self.random.activate(step.random), \
-                self.derives.activate(step.derives):
-            yield
 
     @contextmanager
     def resolving(self, *, steps, state, params, random, derives):

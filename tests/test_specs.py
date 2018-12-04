@@ -18,6 +18,11 @@ def test_activation():
     assert a == {'a1': 1, 'a2': 2}
     assert b == {'b1': 1.}
 
+    assert 'a1' in specs
+    assert list(specs) == ['a1', 'b1', 'a2']
+    assert list(specs.values()) == [1, 1., 2]
+    assert list(specs.items()) == [('a1', 1), ('b1', 1.), ('a2', 2)]
+
     assert dict(specs) == {'a1': 1, 'b1': 1., 'a2': 2}
 
 
@@ -109,6 +114,13 @@ def test_validation():
 
     with pytest.raises(TypeError):
         specs(dct={'a': ..., 'c': bool})
+
+    with pytest.raises(TypeError):
+        specs(e=[])
+
+    with pytest.raises(TypeError):
+        specs(ms=[float, float, str, float, int, float])
+
     assert specs.specs['dct'] == {'a': int, 'b': float, 'c': str, 'd': [bool]}
 
     assert set(specs.specs) == {'i', 's', 'fs', 'dct', 'b'}
@@ -118,22 +130,17 @@ def test_validate_methods():
     specs = Specs()
 
     class Foo:
-        def foo():
-            pass
+        def foo(): pass
 
-        def bar():
-            pass
+        def bar(): pass
 
     class Bar(Foo):
-        def bar():
-            pass
+        def bar(): pass
 
-        def baz():
-            pass
+        def baz(): pass
 
     class Baz:
-        def baz():
-            pass
+        def baz(): pass
 
     bar = Bar()
     bar_ = Bar()
