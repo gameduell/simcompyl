@@ -4,7 +4,7 @@ from weakref import WeakKeyDictionary
 from collections import namedtuple
 from contextlib import contextmanager, ExitStack
 from functools import wraps
-from types import MethodType
+from types import FunctionType
 
 from .engine import NumbaEngine
 
@@ -177,13 +177,26 @@ class Specs:
                 self.specs[name] = result
                 self.active[name] = result
 
-        if return_namedtuple or len(results) > 1:
+        if return_namedtuple or len(results) != 1:
             Access = namedtuple('Access', list(results))
             return Access(**{name: self.resolve(name, spec)
                              for name, spec in results.items()})
         else:
             (name, spec), = results.items()
             return self.resolve(name, spec)
+
+
+class SpecsCollection(dict):
+    def initialize(self, obj):
+        for name, sepcs in self.items():
+            setattr(obj, name, {})
+
+    @contextmanager
+    def activate(self, obj):
+        with ExitStack() as stack:
+            for name, specs in self.items():
+                stack.enter_context(specs.activate(getattr(obj, name)))
+            yield
 
 
 def step(method):
@@ -200,6 +213,11 @@ def step(method):
     This implementation should accept a parameter object and the state as
     its first arguments, but also can have custom arguments or return types.
     The parameter object should be past on to the params and random accessors.
+
+    The object where the `@step` methods are defined has to support a
+    `__sepcs__` attribute, returning a SpecsCollection of all specs that should
+    be recorded in each step, at least a `steps` `Specs`, which records all
+    calls to `@step` annotated methods.
 
     >>> @step
     ... def somestep(self):
@@ -257,12 +275,7 @@ class Step:
     def __init__(self, model, method):
         self.__self__ = model
         self.method = method
-
-        self.steps = {}
-        self.state = {}
-        self.params = {}
-        self.random = {}
-        self.derives = {}
+        self.__self__.__specs__.initialize(self)
 
     @property
     def __name__(self):
@@ -272,31 +285,22 @@ class Step:
     @property
     def impl(self):
         """Return the underlying implementation registered in the model."""
-        return self.__self__.steps.specs[self.__name__]
+        return self.__self__.__specs__['steps'].specs[self.__name__]
 
     def __call__(self):
         """Return the specs accessor of the step."""
-        with self.__self__.steps.activate(self.steps), \
-                self.__self__.state.activate(self.state), \
-                self.__self__.params.activate(self.params), \
-                self.__self__.random.activate(self.random), \
-                self.__self__.derives.activate(self.derives):
+        with self.__self__.__specs__.activate(self):
             impl = self.method()
+            if not isinstance(impl, FunctionType):
+                msg = ("A @step method should return a function, "
+                       "but {} returned a {} object.")
+                raise TypeError(msg.format(self.__name__, type(impl).__name__))
+
             impl.__self__ = self.__self__
             impl.__name__ = self.__name__
             impl.__step__ = self
 
-        return self.__self__.steps(**{self.__name__: impl})
-
-
-class Impl:
-    def __init__(self, impl, step):
-        self.impl = impl
-        self.step = step
-
-    @property
-    def __name__(self):
-        return self.step.__name__
+        return self.__self__.__specs__['steps'](**{self.__name__: impl})
 
 
 class Model:
@@ -315,11 +319,13 @@ class Model:
 
     def __init__(self):
         """Create a new model instance initializing its specs."""
-        self.steps = Specs()
-        self.state = Specs()
-        self.params = Specs()
-        self.random = Specs()
-        self.derives = Specs()
+        self.__specs__ = SpecsCollection(steps=Specs(),
+                                         state=Specs(),
+                                         params=Specs(),
+                                         random=Specs(),
+                                         derives=Specs())
+        (self.steps, self.state,
+         self.params, self.random, self.derives) = self.__specs__.values()
 
         self.alloc = None
         self.engine = NumbaEngine().bind(self, compile=False)

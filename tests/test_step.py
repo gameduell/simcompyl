@@ -1,20 +1,23 @@
+import pytest
+
 import simulate as sim
 
-from simulate.model import Step, Specs, StepDescriptor
+from simulate.model import Step, StepDescriptor, Specs, SpecsCollection
+
+
+class Base:
+    def __init__(self):
+        self.__specs__ = SpecsCollection(steps=Specs(),
+                                         other=Specs())
+        self._steps, self.other = self.__specs__.values()
 
 
 def test_base():
-    class Foo:
-        def __init__(self):
-            self.steps = Specs()
-            self.state = Specs()
-            self.params = Specs()
-            self.random = Specs()
-            self.derives = Specs()
-
+    class Foo(Base):
         @sim.step
         def foo(self):
             bar = self.bar()
+            self.other(foo='Foo')
 
             def impl(trace):
                 trace.append((Foo, self, 'foo'))
@@ -35,6 +38,7 @@ def test_base():
         @sim.step
         def bar(self):
             _bar = super().bar()
+            self.other(bar='Bar')
 
             def impl(trace):
                 trace.append((Bar, self, 'bar'))
@@ -59,6 +63,9 @@ def test_base():
     assert foo.foo.impl == foo.Foo_foo_impl
     assert foo.foo.steps == {'bar': foo.Foo_bar_impl}
 
+    assert foo.foo.other == {'foo': 'Foo'}
+    assert dict(foo.other) == {'foo': 'Foo'}
+
     trace = []
     impl(trace)
     assert trace == [(Foo, foo, 'foo'),
@@ -73,11 +80,24 @@ def test_base():
     assert bar.foo.impl == bar.Foo_foo_impl
     assert bar.foo.steps == {'bar': bar.Bar_bar_impl}
 
+    assert bar.foo.other == {'foo': 'Foo'}
+    assert bar.bar.other == {'bar': 'Bar'}
+    assert dict(bar.other) == {'foo': 'Foo', 'bar': 'Bar'}
+
     trace = []
     impl(trace)
     assert trace == [(Foo, bar, 'foo'),
                      (Bar, bar, 'bar'),
                      (Foo, bar, 'bar')]
 
+
 def test_fails():
-    pass
+    class Foo(Base):
+        @sim.step
+        def foo(self):
+            pass
+
+    foo = Foo()
+
+    with pytest.raises(TypeError):
+        foo.foo()
