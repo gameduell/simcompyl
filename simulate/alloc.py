@@ -1,3 +1,15 @@
+"""
+An allocation takes care of binding different vairables to concrete values.
+
+The allocation of the parameters and random variables is handled outside the
+scope of the model, as
+- we only want one location where parameters and values are defined,
+  but they are used in different parts/classes of a simulation
+- allocation objects can be combined, so you can split the parameters of a
+  larger simulation into logical junks.
+- we can run the same simulation with different (partial) parameter sets
+"""
+
 import numpy as np
 import weakref
 import contextlib
@@ -7,6 +19,7 @@ from itertools import chain
 __all__ = ['Allocation', 'Param',
            'Uniform', 'Bernoulli',
            'Continuous', 'Normal', 'Exponential']
+
 
 class Allocation:
     """

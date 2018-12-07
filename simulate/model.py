@@ -62,12 +62,18 @@ class Specs:
         Note that this method will be replacied inside `resolving` contexts
         by the engine.
 
-        @param name: str
+        Parameters
+        ----------
+        name : str
             name of the spec to resolve
-        @param spec: type ...
+        spec : type or simular
             value of the specification, should be a type or something simular
-        @return
-            returns an accessor object that can be used inside the simulation
+
+        Returns
+        -------
+        accessor
+            an object that can be used to access the spec in the simulation
+
         """
         return spec
 
@@ -76,8 +82,11 @@ class Specs:
         """
         Activate a context where accessors are resolved with the given method.
 
-        @param resolve: function
+        Parameters
+        ----------
+        resolve : function
             function, that given a name and as spec will create an accessor
+
         """
         self.resolve = resolve
         try:
@@ -92,8 +101,11 @@ class Specs:
         """
         Activate a dict to record all the specs while the context is active.
 
-        @param specs: dict
+        Parameters
+        ----------
+        specs : dict
             dict to register the specs inside
+
         """
         self._activated.append(specs)
         try:
@@ -107,7 +119,20 @@ class Specs:
         """Return the current active spec-dict."""
         return self._activated[-1]
 
-    def validate(self, name, spec, prev):
+    def validate(self, name, spec, prev=None):
+        """
+        Validate a spec with the given name against a previous definition.
+
+        Parameters
+        ----------
+        name : str
+            name for the spec
+        spec : type or simular
+            the new type for the spec
+        prev : type or simular (optional)
+            previous defined spec if available.
+
+        """
         if spec is ...:
             if prev is None:
                 msg = "Invalid specs elipsis for {!r}, no previous definition."
@@ -158,12 +183,19 @@ class Specs:
         """
         Register and validate the given names with the supplied specification.
 
-        @param return_namedtuple: boolean
+        Parameters
+        ----------
+        return_namedtuple : boolean
             weather to return a namedtuple even when only one spec is given
-        @param specs: dict
-            name, spec pairs, with a ...-spec using the previous value
-        @return
-            acccessor(s) to the spec(s)
+        **specs : dict
+            name, spec pairs, using the previous value for `name=...` spces
+
+        Retuerns
+        --------
+            accessor
+                Either a namedtuple of accessors or a single accessor,
+                that can be used to access a value during simulation
+
         """
         results = {}
         for name, spec in specs.items():
@@ -187,12 +219,38 @@ class Specs:
 
 
 class SpecsCollection(dict):
+    """
+    Specialized dict puting together multipe specs.
+
+    This class adds the ability to manage all contained specs togheter.
+    """
+
     def initialize(self, obj):
+        """
+        Initialize dict-attributes on an object for later `activate` calls.
+
+        Parameters
+        ----------
+            obj: object
+                a python object where attributes are set to new dictionaries
+                for all the specs defined inside the collection
+
+        """
         for name, sepcs in self.items():
             setattr(obj, name, {})
 
     @contextmanager
     def activate(self, obj):
+        """
+        Activate dict-attributes of the object for each spec in the collection.
+
+        Parameters
+        ----------
+            obj: object
+                a python object with dict-attributes for each spec in this
+                collection.
+
+        """
         with ExitStack() as stack:
             for name, specs in self.items():
                 stack.enter_context(specs.activate(getattr(obj, name)))
@@ -202,9 +260,6 @@ class SpecsCollection(dict):
 def step(method):
     """
     Annotate a method used as a step inside a simulation model.
-
-    @param method: method
-        annotated method should return the actual implementation of the step
 
     The method should first bind local variables to accesors returned by
     the models `state`, `params` or `random` specs or by calls to other or
@@ -238,6 +293,12 @@ def step(method):
     ...     return impl
 
     This way, the engine can create a optimized version of the implementation.
+
+    Parameters
+    ----------
+    method : method
+        the annotated method returning the actual implementation
+
     """
     return wraps(method)(StepDescriptor(method))
 
@@ -268,8 +329,6 @@ class Step:
     method, so all dependencies will be registered insde the step. Moreover,
     it will register the resulting implementation inside the `steps` Specs
     of the model and returns the accessor for the specs.
-
-    @see step
     """
 
     def __init__(self, model, method):
@@ -310,11 +369,20 @@ class Model:
     The model consists of `steps`, that will transform a `state` using
     as set of `paramms` and `random` variables.
 
+    Steps
+    -----
     * `init` will be called once at the begin of the simulation for each sample
     * `iterate` and `apply` will be called repititly according to the parameter
       `n_step`, where `iterate` works on individuals of the population, while
       `apply` works on the complete population.
     * finally, a `finish` step is invoced with the complete population
+
+    Methods
+    -------
+    bind(alloc, complie=None)
+    use(engine, compile=None)
+    execute(engine=None, **params)
+
     """
 
     def __init__(self):
@@ -347,12 +415,19 @@ class Model:
         """
         Use a different engine for executing the model.
 
-        @param engine: Engine
+        Parameters
+        ----------
+        engine : Engine
             the new engine to use
-        @param compile: boolean
+        compile : boolean
             pass on the compile option to the engine, so it will already
             precompile the model
-        @return self
+
+        Returns
+        -------
+            self
+                the model itself for further calls
+
         """
         self.engine = engine.bind(self, self.alloc, compile=compile)
         return self
@@ -361,12 +436,19 @@ class Model:
         """
         Bind the allocation object to this sumlation.
 
-        @param alloc: Allocation
+        Parameters
+        ----------
+        alloc : Allocation
             the allocation to be used by the simulation model
-        @param compile: boolean
+        compile : boolean
             pass on the compile option to the engine, so it will already
             precompile the model
-        @return self
+
+        Returns
+        -------
+            self
+                the model itself for further calls
+
         """
         self.alloc = alloc
         self.engine.bind(self, self.alloc, compile=compile)
@@ -376,12 +458,18 @@ class Model:
         """
         Execute the simulation on a engine recoding it's resulting state.
 
-        @param engine: Engine (optional)
+        Parameters
+        ----------
+        engine: Engine (optional)
             the engine to be used for execution
-        @param params: dict
+        params: dict
             parameters to set on the allocation before executing the model
-        @return
-            the state after running the simulation
+
+        Returns
+        -------
+            state
+                the state after running the simulation
+
         """
         if engine is None:
             engine = self.engine
@@ -396,9 +484,11 @@ class Model:
         """
         Activte the supplied `Trace` objects inside this context.
 
-        @param traces: Trace
+        Parameters
+        ----------
+        traces: Trace
             `Trace` to activate when `execute`ing the simulation
-        @param opts: dict
+        opts: dict
             options to pass on to the trace objects
         """
         if len(traces) == 1:
@@ -464,14 +554,21 @@ class Model:
         """
         Create a new dynamic prarameter from the supplied parameters.
 
-        @param deps: dict
+        Parameters
+        ----------
+        deps : dict
             parameters used to create the dynamic value
-        @return
-            annotating function
+
+        Returns
+        -------
+            accessor
+                accessor to the dynamic parameter for inside the simulation
+
         """
         def annotate(fn):
             name = '{}({})'.format(fn.__name__, ','.join(deps))
-            return wraps(fn)(self.derives(**{name: (fn, deps)}))
+            self.params(**deps)
+            return self.derives(**{name: (fn, deps)})
         return annotate
 
     @step
@@ -479,14 +576,11 @@ class Model:
         """
         Return an implemenetation initializing the state for each individual.
 
-        @param params
-             the parameters object that should be passed on to the `params`
-             and `random` accessors inside the implementation of the step
-        @param state
-             line of the state that should be updated by indexing with the
-             `state` accessors during the implementation of this step
-        @return
-             the implementation function accepting these parameters
+        Returns
+        -------
+             impl(params, state)
+                the implementation function accepting params and state args
+
         """
         def impl(params, state):
             pass
@@ -497,14 +591,11 @@ class Model:
         """
         Return an implemenetation that runs one simulation step on each sample.
 
-        @param params
-             the parameters object that should be passed on to the `params`
-             and `random` accessors inside the implementation of the step
-        @param state
-             line of the state that should be updated by indexing with the
-             `state` accessors during the implementation of this step
-        @return
-             the implementation function accepting these parameters
+        Returns
+        -------
+             impl(params, state)
+                the implementation function accepting params and state args
+
         """
         def impl(params, state):
             pass
@@ -515,14 +606,11 @@ class Model:
         """
         Return an implemenetation that updates the complete population.
 
-        @param params
-             the parameters object that should be passed on to the `params`
-             and `random` accessors inside the implementation of the step
-        @param state
-             state of all samples that should be updated by indexing with the
-             `state` accessors during the implementation of this step
-        @return
-             the implementation function accepting these parameters
+        Returns
+        -------
+             impl(params, state)
+                the implementation function accepting params and state args
+
         """
         def impl(params, state):
             pass
@@ -533,14 +621,11 @@ class Model:
         """
         Return an implemenetation finializes the complete population.
 
-        @param params
-             the parameters object that should be passed on to the `params`
-             and `random` accessors inside the implementation of the step
-        @param state
-             state of all samples that should be updated by indexing with the
-             `state` accessors during the implementation of this step
-        @return
-             the implementation function accepting these parameters
+        Returns
+        -------
+             impl(params, state)
+                the implementation function accepting params and state args
+
         """
         def impl(params, state):
             pass

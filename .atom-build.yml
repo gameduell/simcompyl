@@ -1,4 +1,4 @@
-cmd: "py.test --cov=. --cov-report=xml; ./coverage/2lcov.sed coverage.xml > coverage/lcov.info"
+cmd: "py.test --cov=simulate --cov-report=xml; ./coverage/2lcov.sed coverage.xml > coverage/lcov.info"
 name: "py.test"
 cwd: "{PROJECT_PATH}"
 errorMatch:
