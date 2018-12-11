@@ -1,6 +1,6 @@
 import simulate as sim
 
-from simulate.model import Step
+from simulate.core.model import Step
 from types import FunctionType
 
 

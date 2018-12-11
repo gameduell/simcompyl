@@ -28,6 +28,7 @@ class Specs:
     used during the execution of the simulation. This is achived by letting the
     execution engine register itself inside the `resolving` context and giving
     contorl to the engine to create the accessor.
+
     """
 
     def __init__(self):
@@ -37,21 +38,27 @@ class Specs:
         self._activated = [{}]
 
     def __contains__(self, name):
+        """Check weather there is a spec with the given name."""
         return name in self.specs
 
     def __iter__(self):
+        """Iterate through all names defined in this specs."""
         return iter(self.specs)
 
     def __getitem__(self, name):
+        """Return the spec for a specific name."""
         return self.specs[name]
 
     def keys(self):
+        """Get all names this Specs."""
         return self.specs.keys()
 
     def values(self):
+        """Get all the Specs values."""
         return self.specs.values()
 
     def items(self):
+        """Get name, value paris of this Specs."""
         return self.specs.items()
 
     def resolve(self, name, spec):

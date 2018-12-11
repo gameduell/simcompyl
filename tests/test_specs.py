@@ -1,7 +1,7 @@
 import pytest
 from collections import Counter
 
-from simulate.model import Specs
+from simulate.core.model import Specs
 
 
 def test_activation():
@@ -59,31 +59,31 @@ def test_resolve():
 def test_validation():
     specs = Specs()
 
-    specs(i=int, s=str, fs=[float]*4)
+    specs(i=int, s=str, fs=[float] * 4)
     assert specs['i'] == int
     assert specs['s'] == str
-    assert specs['fs'] == [float]*4
+    assert specs['fs'] == [float] * 4
     specs(dct={'a': int, 'b': float})
     assert specs['dct'] == {'a': int, 'b': float}
 
     specs(i=..., s=..., fs=..., dct=...)
     assert specs['i'] == int
     assert specs['s'] == str
-    assert specs['fs'] == [float]*4
+    assert specs['fs'] == [float] * 4
     assert specs['dct'] == {'a': int, 'b': float}
 
     specs(dct={'a': ..., 'b': ..., 'c': str})
     assert specs.specs['dct'] == {'a': int, 'b': float, 'c': str}
 
     specs(i=int)
-    specs(s=str, fs=[float]*4)
+    specs(s=str, fs=[float] * 4)
     specs(dct={'b': float, 'd': [bool]})
     assert specs.specs['dct'] == {'a': int, 'b': float, 'c': str, 'd': [bool]}
 
-    specs(fs=[float]*2)
-    assert specs['fs'] == [float]*4
-    specs(fs=[float]*6)
-    assert specs['fs'] == [float]*6
+    specs(fs=[float] * 2)
+    assert specs['fs'] == [float] * 4
+    specs(fs=[float] * 6)
+    assert specs['fs'] == [float] * 6
 
     with pytest.raises(TypeError):
         specs(b=...)
@@ -110,7 +110,7 @@ def test_validation():
 
     with pytest.raises(TypeError):
         specs(fs=[int])
-    assert specs['fs'] == [float]*6
+    assert specs['fs'] == [float] * 6
 
     with pytest.raises(TypeError):
         specs(dct={'a': ..., 'c': bool})
@@ -130,17 +130,22 @@ def test_validate_methods():
     specs = Specs()
 
     class Foo:
-        def foo(): pass
+        def foo():
+            pass
 
-        def bar(): pass
+        def bar():
+            pass
 
     class Bar(Foo):
-        def bar(): pass
+        def bar():
+            pass
 
-        def baz(): pass
+        def baz():
+            pass
 
     class Baz:
-        def baz(): pass
+        def baz():
+            pass
 
     bar = Bar()
     bar_ = Bar()

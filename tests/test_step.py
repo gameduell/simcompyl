@@ -2,7 +2,7 @@ import pytest
 
 import simulate as sim
 
-from simulate.model import Step, StepDescriptor, Specs, SpecsCollection
+from simulate.core.model import Step, StepDescriptor, Specs, SpecsCollection
 
 
 class Base:
