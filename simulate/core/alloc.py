@@ -15,10 +15,12 @@ import weakref
 import contextlib
 
 from itertools import chain
+from types import FunctionType
+from inspect import signature
 
-__all__ = ['Allocation', 'Param',
+__all__ = ['Allocation', 'Param', 'Distribution',
            'Uniform', 'Bernoulli',
-           'Continuous', 'Normal', 'Exponential']
+           'Continious', 'Normal', 'Exponential']
 
 
 class Param:
@@ -69,8 +71,8 @@ class Param:
     def arity(self):
         """Return the number of primitive values this parameter is defining."""
         if (isinstance(self.default, dict) and isinstance(
-                next(iter(self.default.allocs())), list)):
-            return sum(len(vs) for vs in self.default.allocs())
+                next(iter(self.default.values())), list)):
+            return sum(len(vs) for vs in self.default.values())
 
         if isinstance(self.default, (list, dict, tuple)):
             return len(self.default)
@@ -157,11 +159,25 @@ class Alloc:
 
     def subscribe(self, callback):
         """Add a `callback(name, old, new)` to be notified about changes."""
+        if not isinstance(callback, FunctionType):
+            msg = "Callback object should be callable, not a {}."
+            raise TypeError(msg.format(type(callback).__name__))
+
+        try:
+            signature(callback).bind('', None, None)
+        except TypeError as e:
+            msg = "Callback should accept 3 positinal args (name, old, new)."
+            raise TypeError(msg) from e
+
         self.subscribers.append(callback)
 
     def unsubscribe(self, callback):
         """Remove a `callback(name, old, new)` from being notified."""
-        self.subscribers = [s for s in self.subscribes if s != callback]
+        try:
+            idx = self.subscribers.index(callback)
+            return self.subscribers.pop(idx)
+        except ValueError:
+            return None
 
     def __str__(self):
         """Show the allocation."""
@@ -222,23 +238,39 @@ class Allocation:
         else:
             return NotImplemented
 
-    @classmethod
-    def keys(cls):
+    def __contains__(self, name):
+        """Check if a parameter with the given name is defined."""
+        for n, a in self.items():
+            if name == n or name == a.name:
+                return True
+        else:
+            return False
+
+    def __getitem__(self, name):
+        """Get the parameter with the given name."""
+        for n, a in self.items():
+            if name == n or name == a.name:
+                return a
+        else:
+            msg = "Unknown parameter {!r} for {}."
+            raise IndexError(msg.format(name, self))
+
+    def keys(self):
         """Iterate through the attribute names of all parameters."""
-        for name in dir(cls):
-            desc = getattr(cls, name)
-            if isinstance(desc, Param):
-                yield name
+        for name, _ in self.items():
+            yield name
 
     def values(self):
         """Iterate through all the allocated values of this allocation."""
-        for name in self.keys():
-            yield getattr(self, name)
+        for _, value in self.items():
+            yield value
 
     def items(self):
         """Iterate though all the name/value parameter pairs."""
-        for name in self.keys():
-            yield (name, getattr(self, name))
+        for name in dir(type(self)):
+            desc = getattr(type(self), name)
+            if isinstance(desc, Param):
+                yield name, desc.alloc(self)
 
     def __str__(self):
         """Output a short string of the allocation."""
@@ -271,9 +303,12 @@ class CombinedAllocation(Allocation):
 
         self.bases = bases
 
-    def keys(self):
+    def __iter__(self):
+        return iter(self.bases)
+
+    def items(self):
         """Iterate though all keys of all base allocations."""
-        return chain(a.keys() for a in self.bases)
+        return chain(*[a.items() for a in self.bases])
 
     def __getattr__(self, name):
         for alloc in self.bases:
@@ -284,7 +319,7 @@ class CombinedAllocation(Allocation):
             raise AttributeError(msg.format(type(self).__name__, name))
 
     def __setattr__(self, name, value):
-        if name.startswith('_'):
+        if name.startswith('_') or name == 'bases':
             super().__setattr__(name, value)
 
         for alloc in self.bases:
@@ -294,9 +329,6 @@ class CombinedAllocation(Allocation):
         super().__setattr__(name, value)
 
     def __delattr__(self, name):
-        if name.startswith('_'):
-            super().__delattr__(name)
-
         for alloc in self.bases:
             if hasattr(alloc, name):
                 return delattr(alloc, name)
@@ -331,6 +363,16 @@ class Distribution(Param):
 
         """
         raise NotImplementedError
+
+    def args(self, val=None):
+        """Get arguments tuple that can be used for the `sample` function."""
+        val = val.value if val is not None else self.default
+        if isinstance(val, dict):
+            return tuple(val.values())
+        elif isinstance(val, (tuple, list)):
+            return tuple(val)
+        else:
+            return (val,)
 
 
 class Uniform(Distribution):
@@ -383,11 +425,11 @@ class Bernoulli(Distribution):
     def sample(self):
         """Get sampling method for the bernoulli distribution."""
         def impl(p):
-            return np.random.binomial(1, p)
+            return np.random.binomial(1, p) > .5
         return impl
 
 
-class Continuous(Distribution):
+class Continious(Distribution):
     """Parameters for a uniform continues distribution."""
 
     def __init__(self, name, low, high, help=None, options=None):

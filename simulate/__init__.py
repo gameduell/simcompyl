@@ -16,9 +16,14 @@ for i in ignores:
     warnings.filterwarnings("ignore", message=i)
 
 from .core.model import Model, step  # noqa: E402
-from .core.alloc import Allocation, Param  # noqa: E402
+from .core.alloc import (Allocation, Param, Distribution,
+                         Uniform, Bernoulli,
+                         Continious, Normal, Exponential)  # noqa: E402
 from .core import trace  # noqa: E402
 from .core import engine  # noqa: E402
 
 
-__all__ = ['Model', 'step', 'Allocation', 'Param', 'trace', 'engine', 'visual']
+__all__ = ['Model', 'step', 'Allocation', 'Param', 'Distribution',
+           'Uniform', 'Bernoulli',
+           'Continious', 'Normal', 'Exponential',
+           'trace', 'engine', 'visual']

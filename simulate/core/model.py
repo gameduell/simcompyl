@@ -308,6 +308,7 @@ class StepDescriptor:
         self.refs = WeakKeyDictionary()
 
     def __get__(self, instance, owner=None):
+        """Return the step instance for this descriptor."""
         if instance is None:
             return self
         elif instance in self.refs:
