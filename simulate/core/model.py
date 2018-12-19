@@ -407,34 +407,16 @@ class Model:
         self.apply()
         self.finish()
 
-    def use(self, engine, compile=None):
-        """Use a different engine for executing the model.
+    def bind(self, alloc=None, engine=None, compile=None):
+        """Bind the allocation object to this simlation or use another engine.
 
         Parameters
         ----------
-        engine : Engine
-            the new engine to use
-        compile : boolean
-            pass on the compile option to the engine, so it will already
-            precompile the model
-
-        Returns
-        -------
-            self
-                the model itself for further calls
-
-        """
-        self.engine = engine.bind(self, self.alloc, compile=compile)
-        return self
-
-    def bind(self, alloc, compile=None):
-        """Bind the allocation object to this sumlation.
-
-        Parameters
-        ----------
-        alloc : Allocation
+        alloc : Allocation (optional)
             the allocation to be used by the simulation model
-        compile : boolean
+        engine : Engine (optional)
+            the new engine to use
+        compile : boolean (optional)
             pass on the compile option to the engine, so it will already
             precompile the model
 
@@ -444,8 +426,12 @@ class Model:
                 the model itself for further calls
 
         """
-        self.alloc = alloc
-        self.engine.bind(self, self.alloc, compile=compile)
+        if alloc is not None:
+            self.alloc = alloc
+        if engine is not None:
+            self.engine = engine
+        if engine is not None or alloc is not None or compile is not None:
+            self.engine.bind(self, self.alloc, compile=compile)
         return self
 
     def execute(self, engine=None, **params):
@@ -464,6 +450,10 @@ class Model:
                 the state after running the simulation
 
         """
+        if self.alloc is None:
+            msg = "No allocation for model, use `model.bind(alloc)` before."
+            raise ValueError(msg)
+
         if engine is None:
             engine = self.engine
         else:
@@ -529,8 +519,8 @@ class Model:
         for name, impl in self.steps.specs.items():
             calls = [s for s in impl.__step__.steps if s != name]
             while name in impl.__step__.steps:
-                step = impl.__step__.steps[name].__impl__
-                calls.extend([s for s in step.steps if s != name])
+                impl = impl.__step__.steps[name]
+                calls.extend([s for s in impl.__step__.steps if s != name])
 
             with graph.subgraph() as g:
                 g.attr(rank='same')

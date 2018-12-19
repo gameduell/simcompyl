@@ -284,7 +284,7 @@ class NumbaEngine(Engine):
 
         assert len(params) == len(self.layout)
 
-        return np.array(params)
+        return np.array(params, dtype=float)
 
     def resolve_steps(self, name, impl):
         """Return the binding for the given StepInstance"""
