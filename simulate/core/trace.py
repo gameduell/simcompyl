@@ -1,371 +1,502 @@
 """A trace defines how to keep track of statistics during the simulation."""
 
-import numba
 import pandas as pd
 import numpy as np
+import operator
+import inspect
 
 import time
 
 from .util import lazy
 
 
+def _defop(op, arity=2, reverse=False):
+    """Create an implementation of an operation on a trace."""
+    if arity == 1:
+        def __applyop__(self):
+            return Apply(self, op)
+
+    elif arity == 2:
+        def __applyop__(self, other):
+            return BinaryOp(self, other)
+
+        def __applyrop__(self, other):
+            return BinaryOp(self, other, op=op, reverse=True)
+
+    else:
+        raise TypeError("Can't define an operator with {} args".format(arity))
+
+    if reverse:
+        return __applyop__, __applyrop__
+    else:
+        return __applyop__
+
+
 class Trace:
-    """Keeps track of some statitics during simulation."""
+    """Abstract base class for trace transformations.
 
-    # fallback if trace does not define columns
-    columns = []
-    skipping = 1
+    A trace keeps track of some statistics of the data during the simulation.
+    """
 
-    def __init__(self, columns=[]):
-        """
-        Create a trace opbject to keep track of some statistic.
+    def __new__(cls, *args, **kws):
+        """Create a new trace."""
+        input = args[0] if args else None
+        columns = kws.get('columns', input)
+        mods = dict(kws)
+        mods.pop('skip', None)
 
-        @param columns create the statistic on the given columns.
-        """
+        if cls == Trace:
+            if input is None and columns is None and mods:
+                return Assign(*args, **kws)
+
+            elif (isinstance(columns, list)
+                  and all(isinstance(c, str) for c in columns)
+                  and not kws
+                  and (input is None or input is columns)):
+                return Source(*args, **kws)
+        return super().__new__(cls)
+
+    def __init__(self, *inputs, columns=None, skip=None):
+        """Create transformation with an given input and output columns."""
+        if columns is None and inputs:
+            columns = inputs[0].columns
+        if skip is None and inputs:
+            skip = inputs[0].skip
+        self.inputs = inputs
         self.columns = columns
-        self.model = None
+        self.skipping = skip
 
-    def on(self, model):
-        """
-        Trace the statistics using the supplied model.
+    def traces(self, ctx):
+        """Tracing methods of the inputs."""
+        return [ctx.resolve_function(tr.trace(ctx)) for tr in self.inputs]
 
-        @return self
-        """
-        self.model = model
-        return self
+    def trace(self, ctx):
+        """Return numba compatible implementation method."""
+        input, = self.traces(ctx)
 
-    def target(self, manager):
-        """
-        Explicitly specify the target manager to use.
+        def impl(params, raw):
+            return input(params, raw)
+        return impl
 
-        @param manager TraceManager to use for publishing tracing data.
-        @see TraceManager
-        """
-        self.manager = manager.bind(self)
-        return self
-    
-    def holo(self):
-        return self.target(HoloViewsManager())
+    def __frame__(self, traces):
+        """Create a pandas dataframe for the given transformed traces."""
+        return pd.DataFrame(traces, columns=self.columns)
 
-    @lazy
-    def manager(self):
-        """Get the TraceManager used by this trace."""
-        return TraceManager().bind(self)
+    def name(self, *names):
+        """Name the columns of the trace."""
+        if len(names) != len(self.columns):
+            raise ValueError("Supplied names should match length of columns.")
+        return Trace(self, columns=names)
 
-    def options(self, *, sample=0, skip=0, **opts):
-        """
-        Set options for this trace, may result in changes to the manager.
-
-        @param sample restrict the number of samples to use for creating traces
-        @param skip only create a trace every skip-th call to loop
-        @return self
-        """
-        if sample:
-            self = SamplingTrace(self, n=sample, model=self.model)
-
-        if skip:
-            orig = self.manager
-            del self.manager
-            self.target(SkippingManager(orig, skip=skip))
-            self.skipping = skip
-
-        self.manager.options(**opts)
-        return self
+    def skip(self, n=10):
+        """Only take every n-th step as a trace."""
+        return Trace(self, skip=n)
 
     def __getattr__(self, name):
-        """Access attributes of the manager."""
-        if not name.startswith('_') and hasattr(self.manager, name):
-            return getattr(self.manager, name)
-        raise AttributeError("{!r} object has no attribute {!r}."
+        """Accessor for a single column of the trace."""
+        if name in self.columns:
+            return Columns(self, [name])
+
+        raise AttributeError("{!r} object has no {!r} attribute."
                              .format(type(self).__name__, name))
 
-    def __columns__(self, model):
-        """Return an indexing array to the columns of this trace."""
-        return self.model.state(return_namedtuple=True, 
-                                **{c: ... for c in self.columns})
+    def __getitem__(self, item):
+        """Subselection of slice or columns.
 
-    def empty(self, truncate=True):
+        Parameters
+        ----------
+        item : slice or list
+            - slice: sub-selection of a slice on samples
+            - list: sub-selection on the columns of the trace
         """
-        Create a empty trace form an uninitialized state.
+        if isinstance(item, str):
+            return Columns(self, [item])
+        elif isinstance(item, slice):
+            return Slice(self, item)
+        elif isinstance(item, list):
+            return Columns(self, item)
+        elif isinstance(item, Trace):
+            return Filter(self, item)
+        else:
+            msg = "Getting item with a {}".format(type(item))
+            raise NotImplementedError(msg)
 
-        @param truncate weather to return an empty dataframe
-                        just with the structure of the frame or a filled frame.
-        """
-        n = self.model.alloc.n_samples.value
-        engine = self.model.engine
-        
-        tr = engine.trace(self)
-        
-        params = engine.params()
-        state = engine.state()
-        
-        return self.frame([tr(params, state)]).iloc[:0 if truncate else None]
-    
-    def prepare(self):
-        return self.manager.prepare()
-    
-    def finalize(self):
-        return self.manager.finalize()
+    __eq__ = _defop(operator.eq)
+    __ne__ = _defop(operator.ne)
+    __lt__ = _defop(operator.lt)
+    __le__ = _defop(operator.le)
+    __gt__ = _defop(operator.gt)
+    __ge__ = _defop(operator.ge)
 
-    def trace(self, model):
-        """Return a implementation transforming the state into a trace."""
-        def impl(params, state):
-            return NotImplemented
+    __inv__ = _defop(operator.inv)
+    __or__ = _defop(operator.or_)
+    __and__ = _defop(operator.and_)
+    __xor__ = _defop(operator.xor)
+
+    __pos__ = _defop(operator.pos, 1)
+    __neg__ = _defop(operator.neg, 1)
+    __bool__ = _defop(operator.truth, 1)
+    __abs__ = _defop(operator.abs, 1)
+
+    __add__, __radd__ = _defop(operator.add, reverse=True)
+    __sub__, __rsub__ = _defop(operator.sub, reverse=True)
+    __mul__, __rmul__ = _defop(operator.mul, reverse=True)
+    __mod__, __rmod__ = _defop(operator.mod, reverse=True)
+    __truediv__, __rtruediv__ = _defop(operator.truediv, reverse=True)
+    __floordiv__, __rfloordiv__ = _defop(operator.floordiv, reverse=True)
+    __pow__, __rpow__ = _defop(operator.pow, reverse=True)
+    __lshift__, __rlshift__ = _defop(operator.lshift, reverse=True)
+    __rshift__, __rrshift__ = _defop(operator.rshift, reverse=True)
+
+    def take(self, num=5):
+        """Take the specified number of samples form the data."""
+        return self[:num]
+
+    sum = _defop(np.sum, arity=1)
+    mean = _defop(np.mean, arity=1)
+    median = _defop(np.median, arity=1)
+
+    def quantile(self, qs=[.1, .25, .5, .75, .9]):
+        """Trace quantiles over the data."""
+        ps = np.array(qs) * 100
+        return Apply1(self, np.percentile, ps, reduce=len(ps))
+
+
+class Source(Trace):
+    """Source for trace transformations, selecting columns of the state."""
+
+    def __init__(self, columns, skip=None):
+        assert isinstance(columns, list)
+        assert all(isinstance(c, str) for c in columns)
+        super().__init__(columns=columns, skip=skip)
+
+    def trace(self, ctx):
+        """Return implementation that selects columns on the state."""
+        ixs = np.array(ctx.state(**{c: ... for c in self.columns}))
+
+        def impl(params, raw):
+            return raw[:, ixs]
         return impl
 
-    def frame(self, traces, index=None, columns=None):
-        """
-        Create a dataframe from a list of traces.
 
-        @param traces list of raw traces
-        @param index indexes inside each trace
-        @param columns columns inside each trace
-        """
-        trx = pd.RangeIndex(len(traces), name='trace')
-        trx *= self.skipping
+class Assign(Trace):
+    """Assign a new columns with values from supplied functions."""
 
-        shape = traces[0].shape
+    def __init__(self, input=None, skip=None, **assigns):
+        required = set()
+        outputs = list(assigns.keys())
+        for assign in assigns.values():
+            sig = inspect.signature(assign)
+            required.update(sig.parameters)
+        columns = list(required)
 
-        # columns
-        if columns is None and shape[-1] == len(self.columns):
-            columns = pd.Index(self.columns, name='variable')
-            
-        if index is None and len(shape) > 1:
-            index = pd.RangeIndex(shape[0], name='individual')
-            
-        if index is None:
-            index = trx
+        if input is None:
+            input = Source(columns, skip=skip)
+            sel = len(columns)
+            columns = outputs
         else:
-            index = pd.MultiIndex.from_product([trx, index], 
-                                               names=(trx.name, index.name))
-            
-        return pd.DataFrame(np.concatenate(traces),
-                            columns=columns, index=index).unstack()
-            
+            sel = 0
+            columns = input.columns + outputs
+
+        missing = set(input.columns) - required
+        if missing:
+            msg = "Input of assign is missing the following columns: {}"
+            raise ValueError(msg.format(", ".join(missing)))
+
+        super().__init__(input, columns=columns)
+        self.assigns = assigns
+        self.select = sel
+
+    def trace(self, ctx):
+        """Add assignments to the trace."""
+        def bound(input, idx, fn):
+            if len(idx) == 1:
+                @ctx.resolve_function
+                def call(raw):
+                    return fn(raw[:, idx[0]])
+            elif len(idx) == 2:
+                @ctx.resolve_function
+                def call(raw):
+                    return fn(raw[:, idx[0]], raw[:, idx[1]])
+            else:
+                msg = "Assign with {} args not supported currently."
+                raise NotImplementedError(msg.format(len(idx)))
+
+            @ctx.resolve_function
+            def impl(params, raw):
+                ins = input(params, raw)
+
+                new = np.empty((len(ins), 1))
+                new[:, 0] = call(ins)
+                # XXX Perhaps we should do allocation to avoid concat rep.
+                return np.concatenate((ins, new), axis=1)
+            return impl
+
+        input, = self.traces(ctx)
+        for assign in self.assigns.values():
+            params = inspect.signature(assign).parameters
+            idx = np.array([self.inputs[0].columns.index(p) for p in params])
+            fn = ctx.resolve_function(assign)
+            input = bound(input, idx, fn)
+
+        sel = self.select
+
+        def select(params, raw):
+            ins = input(params, raw)
+            return ins[:, sel:]
+
+        return select
+
+
+class Filter(Trace):
+    """Filtering along the samples using a predicate trace."""
+
+    def __init__(self, input, predicate):
+        super().__init__(input, predicate)
+
+    @property
+    def input(self):
+        """Get the input to the filter."""
+        return self.inputs[0]
+
+    @property
+    def predicate(self):
+        """Get the predicate of the filter."""
+        return self.inputs[1]
+
+    def trace(self, ctx):
+        """Return implementation applying the predicate."""
+        input, predicate = self.traces(ctx)
+
+        if len(self.predicate.columns) == 1:
+            def impl(params, raw):
+                return input(params, raw)[predicate(params, raw), :]
+
+        elif len(self.predicate.columns) == len(self.input.columns):
+            def impl(params, raw):
+                return input(params, raw)[predicate(params, raw)]
+
+        else:
+            raise ValueError("Sizes of predicate not match input.")
+
+        return impl
+
+
+class BinaryOp(Trace):
+    """Apply a operator on the trace."""
+
+    def __init__(self, input, other, op, reverse=False):
+        if isinstance(other, Trace):
+            super().__init__(input, other)
+        else:
+            super().__init__(input)
+        self.other = other
+        self.op = op
+        self.reverse = reverse
+
+    def trace(self, ctx):
+        """Return implementation applying the binary op."""
+        other = self.other
+        op = self.op
+
+        if self.reverse:
+            @ctx.reslove
+            def apply(a, b):
+                return op(b, a)
+        else:
+            @ctx.reslove
+            def apply(a, b):
+                return op(a, b)
+
+        if isinstance(other, pd.Series):
+            other = other.loc[self.columns]
+
+        if isinstance(other, (pd.Seres, np.array, list)):
+            other = np.array(other)
+            input, = self.traces(ctx)
+
+            def impl(params, raw):
+                ins = input(params, raw)
+                m, n = ins.shape
+                result = np.empty((m, n))
+
+                for i in range(n):
+                    result[:, i] = apply(ins[:, i], other[i])
+                return result
+
+        elif isinstance(other, Trace):
+            if (other.columns != self.columns
+                    and (len(self.columns) != 1 or len(other.columns) != 1)):
+                raise ValueError("Columns to binary operator don't match!")
+
+            fst, snd = self.traces(ctx)
+
+            def impl(params, raw):
+                a, b = fst(params, raw), snd(params, raw)
+                m, n = a.shape
+
+                result = np.empty((m, n))
+                for i in range(n):
+                    result[:, i] = apply(a[i], b[i])
+
+        else:
+            input, = self.traces(ctx)
+
+            def impl(params, raw):
+                return apply(input(params, raw), other)
+
+        return impl
+
+
+class Apply(Trace):
+    """Transformation applying a given function."""
+
+    def __init__(self, input, method, *args, reduce=False):
+        super().__init__(input)
+        self.method = method
+        self.args = args
+        self.reduce = reduce
+
+    def trace(self, ctx):
+        """Return implementation applying a method on each column."""
+        apply = ctx.resolve_function(self.apply())
+        reduce = int(self.reduce)
+        input, = self.traces(ctx)
+
+        def impl(params, raw):
+            ins = input(params, raw)
+            m, n = ins.shape
+            if reduce:
+                m = reduce
+
+            result = np.empty((m, n))
+            for i in range(n):
+                result[:, i] = apply(ins[:, i])
+            return result
+        return impl
+
+
+class Apply0(Apply):
+    """Apply a 0-arg method on each column of the trace."""
+
+    def apply(self):
+        """Return implmentation applying the 0-arg method."""
+        method = self.method
+
+        def impl(raw):
+            return method(raw)
+        return impl
+
+
+class Apply1(Apply):
+    """Apply a 1-arg method on each column of the trace."""
+
+    def apply(self):
+        """Return implmentation applying the 1-arg method."""
+        method = self.method
+        arg, = self.args
+
+        def impl(raw):
+            return method(raw, arg)
+        return impl
+
 
 class Columns(Trace):
-    """Trace values of some variables for the complete population."""
-    def trace(self, model):
-        """Trace implementation just selecting the columns."""
-        ix = np.array(self.__columns__(model)).ravel()
+    """Subselection on columns."""
 
-        def impl(params, state):
-            return state[:, ix]
-        return impl
+    def __init__(self, input, columns):
+        assert all(c in input.columns for c in columns)
+        super().__init__(input, columns)
 
-
-class SamplingTrace(Trace):
-    """Sub-sample the complete population before running another trace."""
-
-    def __init__(self, orig, n, model=None):
-        """
-        Create a trace on a specific amount of samples.
-
-        @param orig the original trace object
-        @param n number of samples to trace
-        """
-        self.orig = orig
-        self.n = n
-        self.skipping = orig.skipping
-        self.model = model
-
-    def on(self, model):
-        """Forward the bind to the original trace object."""
-        self.orig.on(model)
-        return super().on(model)
-
-    def trace(self, model):
-        """Use another trace, but only with a limited number of samples."""
-        orig = numba.jit(self.orig.trace(model))
-        n = self.n
-
-        def impl(params, state):
-            return orig(params, state[:n])
-        return impl
-
-    def frame(self, traces, **opts):
-        """Create a frame using the original trace object."""
-        return self.orig.frame(traces, **opts)
-    
-    
-class Sum(Trace):
-    def trace(self, model):
-        ix = np.array(self.__columns__(model)).ravel()
-        
-        def impl(params, raw):
-            result = np.empty((1, len(ix)))
-            for i, x in enumerate(ix):
-                result[0, i] = raw[:, x].sum()
-            return result
-        return impl
-
-    def frame(self, traces, index=None, **opts):
-        """Create a dataframe with the quaniles."""
-        if index is None:
-            index = pd.Index(['Sum'], name='mesure')
-        return super().frame(traces, index=index, **opts)
-    
-    
-class Mean(Trace):
-    def trace(self, model):
-        ix = np.array(self.__columns__(model)).ravel()
-        
-        def impl(params, raw):
-            result = np.empty((1, len(ix)))
-            for i, x in enumerate(ix):
-                result[0, i] = raw[:, x].mean()
-            return result
-        return impl
-
-    def frame(self, traces, index=None, **opts):
-        """Create a dataframe with the quaniles."""
-        if index is None:
-            index = pd.Index(['Mean'], name='mesure')
-        return super().frame(traces, index=index, **opts)
-
-
-class Quantiles(Trace):
-    """Trace that captures quantiles over some variables."""
-    def __init__(self, columns, qs=[.1, .25, .5, .75, .9]):
-        """
-        Create a quantile trace over given variables.
-
-        @param columns names of the variables
-        @param qs list of quantiles to create
-        """
-        super().__init__(columns)
-        self.qs = qs
-
-    def trace(self, model):
-        """Return a method that creates the array with the quantiles."""
-        ix = np.array(self.__columns__(model)).ravel()
-        percents = np.array(self.qs)*100
+    def trace(self, ctx):
+        """Return implementation selecting columns."""
+        ixs = [self.input.columns.index(c) for c in self.columns]
+        input, = self.traces(ctx)
 
         def impl(params, raw):
-            result = np.empty((len(percents), len(ix)))
-            for i, x in enumerate(ix):
-                result[:, i] = np.percentile(raw[:, x], percents)
-            return result
+            return input(params, raw)[:, ixs]
         return impl
 
-    def frame(self, traces, index=None, **opts):
-        """Create a dataframe with the quaniles."""
-        if index is None:
-            index = pd.Index(self.qs, name='quantile')
-        return super().frame(traces, index=index, **opts)
+
+class Slice(Trace):
+    """Select a slice of the data."""
+
+    def __init__(self, input, slice):
+        super().__init__(input)
+        self.slice = slice
+
+    def trace(self, ctx):
+        """Return implementation selecting a slice."""
+        start = self.slice.start or 0
+        stop = self.slice.stop
+        step = self.slice.step or 1
+        input, = self.traces(ctx)
+
+        def impl(params, raw):
+            ins = input(params, raw)
+            return ins[start:stop:step, :]
+        return impl
 
 
-class TraceManager:
-    """Manages the datastructures to keep track of the traces."""
+class Frame:
+    """Create pandas dataframes out of traces."""
 
-    def options(self):
-        """Set options on the manager if available."""
-        return self
-
-    def bind(self, trace):
-        """Manage the given trace object."""
+    def __init__(self, trace):
         self.trace = trace
-        return self
+
+    def empty(self):
+        """Create a empty dataframe according to frame definition."""
+        return self.frame([])
+
+    def frame(self, traces, offset=0):
+        """Create a dataframe out of the given traces."""
+        # TODO index with offset
+        if not traces:
+            return pd.DataFrame(columns=self.trace.columns)
+
+        shape = traces[0].shape
+        if len(shape) == 1:
+            return pd.DataFrame(traces, columns=self.trace.columns)
+        elif len(shape) == 2:
+            return pd.DataFrame(np.concatenate(traces),
+                                columns=self.trace.columns)
+        else:
+            msg = "A trace with {} dimensions is not supported"
+            raise NotImplementedError(msg.format(len(shape)))
 
     def prepare(self):
-        """
-        prepare the internals, called before running a new simulation.
-
-        @return the resulting data object, a DataFrame in the base impl.
-        """
+        """Prepare the internals, called before running a new simulation."""
         self.traces = []
-        self.data = self.trace.empty()
+        self.data = self.empty()
         return self.data
 
     def publish(self, trace):
-        """
-        Take care of handling the trace data called when it becomes available.
-
-        @param trace the raw numpy data of the trace
-        """
+        """Handle the trace data called when it becomes available."""
         self.traces.append(trace)
 
     def finalize(self):
         """Take care to finalize all the data given to the manager."""
-        df = self.trace.frame(self.traces)
+        df = self.frame(self.traces)
         self.data[df.columns] = df
 
 
-class SkippingManager(TraceManager):
-    """Manager that only traces every `skip`-th loop to an original manager."""
+class Holotrace(Frame):
+    """Publish traces to a `holoviews.Buffer`."""
 
-    def __init__(self, orig, skip=1):
-        """
-        Create a new manager that will skip traces.
+    def __init__(self, trace, batch=1, timeout=None):
+        super().__init__(trace)
 
-        @param orig original manager that will be called on every skip-th trace
-        @param skip number of what traces to forward
-        """
-        self.orig = orig
-        self.count = 0
-        self.skip = skip
-
-    def __getattr__(self, name):
-        """Access attributes of the original manager."""
-        return getattr(self.orig, name)
-
-    def bind(self, trace):
-        """Give the trace object to the original manager."""
-        self.orig.bind(trace)
-        return self
-
-    def options(self, *, skip=0, **opts):
-        """
-        Update options, forwarding to the original manager.
-
-        @param skip update the number of traces to work on
-        """
-        if skip:
-            self.skip = skip
-        self.orig.options(**opts)
-        return self
-
-    def prepare(self):
-        """prepare the original manager."""
-        return self.orig.prepare()
-
-    def publish(self, trace):
-        """Publish only each `self.skip`-th trace to the original manager."""
-        if self.count % self.skip == 0:
-            self.orig.publish(trace)
-        self.count += 1
-
-    def finalize(self):
-        """Finalize the original manager."""
-        return self.orig.finalize()
-
-
-class HoloViewsManager(TraceManager):
-    """Manager that publishes to a holoviews buffer."""
-
-    def __init__(self):
-        """Create a manager that publishes traces to a `holoviews.Buffer`."""
-        # early fail
         import holoviews as hv
         hv.__version__
-        self.batch = 1
-        self.timeout = None
 
-    def options(self, *, batch=1, timeout=None, **opts):
-        """
-        Update options of the manager.
-
-        @param batch number of traces to send to bokeh at once
-        """
         self.batch = batch
         self.timeout = timeout
-        return super().options(**opts)
 
     @lazy
     def buffer(self):
         """Get the `holoviews.Buffer` where the data will be published to."""
         import holoviews as hv
-        return hv.streams.Buffer(self.trace.empty(truncate=False),
+        return hv.streams.Buffer(self.empty(),  # truncate=False),
                                  index=False,
                                  length=np.iinfo(int).max)
 
@@ -385,19 +516,18 @@ class HoloViewsManager(TraceManager):
     def push(self):
         """Push remaining traces towards the holoviews buffer."""
         if self.traces:
-            df = self.trace.frame(self.traces)
+            df = self.frame(self.traces)
             if isinstance(df.index, pd.MultiIndex):
-                df.index.set_levels(df.index.levels[0]+self.offset,
+                df.index.set_levels(df.index.levels[0] + self.offset,
                                     level=0, inplace=True)
             else:
                 df.index += self.offset
 
-            self.offset += len(self.traces) * self.trace.skipping
+            self.offset += len(self.traces)  # * self.trace.skipping
             self.traces = []
 
             self.buffer.send(df)
             self.last = time.time()
-            
 
     def publish(self, trace):
         """
@@ -409,9 +539,9 @@ class HoloViewsManager(TraceManager):
 
         if len(self.traces) >= self.batch:
             self.push()
-        elif self.timeout is not None and time.time() - self.last > self.timeout:
+        elif (self.timeout is not None
+                and time.time() - self.last > self.timeout):
             self.push()
-        
 
     def finalize(self):
         """Ensure that all traces end up in the holoviews buffer."""

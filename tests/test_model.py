@@ -2,7 +2,6 @@ import simulate as sim
 
 from simulate.core.model import Step
 from types import FunctionType
-import pytest
 
 
 def test_basics():
@@ -37,9 +36,9 @@ def test_specs():
                                 'foo': {'a': [int], 'b': [bool]},
                                 'baz': float}
 
-    assert len(mdl.state(foo={'a': [int], 'b': [bool]},
+    assert len(mdl.state(foo=bool,
                          baz=float)) == 2
-    assert dict(mdl.state) == {'foo': {'a': [int], 'b': [bool]},
+    assert dict(mdl.state) == {'foo': bool,
                                'baz': float}
 
     assert len(mdl.random(foo=bool, baz=float)) == 2
@@ -58,63 +57,28 @@ def test_specs():
                                 'bar': {'s': float, 't': float},
                                 'baz': float}
 
+    traces = []
 
-def test_binds():
-    class FooBar(sim.Allocation):
-        foo = sim.Param("foo", 42)
-        bar = sim.Param("bar", [True, True, False, True, False, False])
+    def trace(what):
+        def resolve(name, spec):
+            traces.append((what, name, spec))
+            return spec
+        return resolve
 
-    mdl = sim.Model()
-    foo, bar = mdl.params(foo=int,
-                          bar=[bool] * 6)
+    with mdl.resolving(steps=trace('steps'),
+                       state=trace('state'),
+                       params=trace('params'),
+                       random=trace('random'),
+                       derives=trace('derived')):
+        mdl.steps(init=...)
+        mdl.state(foo=...)
+        mdl.params(foo=...)
+        mdl.random(foo=...)
 
-    default = mdl.engine
-    assert mdl.alloc is None
-    assert default.alloc is None
-
-    alloc = FooBar()
-    assert mdl.bind(alloc) == mdl
-    assert mdl.alloc == alloc
-
-    assert default.alloc == alloc
-
-    assert mdl.bind(engine=sim.engine.NumbaEngine(), compile=False) == mdl
-    assert mdl.engine != default
-    assert mdl.engine.alloc == alloc
-
-
-def test_execute():
-    class Test(sim.Model):
-        @sim.step
-        def iterate(self):
-            x = self.state(x=int)
-            y = self.state(y=int)
-
-            def impl(params, state):
-                state[x] += 1
-                state[y] -= 1
-            return impl
-
-    mdl = Test()
-    with pytest.raises(ValueError):
-        mdl.execute()
-
-    class FooBar(sim.Allocation):
-        n_steps = sim.Param("Steps", 2)
-        n_samples = sim.Param("Samples", 3)
-
-    mdl.bind(FooBar())
-    assert dict(mdl.params) == {'n_steps': int, 'n_samples': int}
-    assert dict(mdl.state) == {'x': int, 'y': int}
-
-    out = mdl.execute()
-    assert len(out) == 3
-    assert out.x[0] == 2
-    assert out.y[0] == -2
-
-    eng = sim.engine.NumbaEngine()
-    mdl.execute(engine=eng)
-    assert eng.alloc == mdl.alloc
+    assert traces == [('steps', 'init', mdl.steps(init=...)),
+                      ('state', 'foo', bool),
+                      ('params', 'foo', {'a': [int], 'b': [bool]}),
+                      ('random', 'foo', bool)]
 
 
 def test_graph():

@@ -214,12 +214,15 @@ def test_combined():
     with pytest.raises(TypeError):
         Foo() + Foo()
 
+    with pytest.raises(TypeError):
+        Foo() + object()
+
 
 def test_distributions():
     with pytest.raises(NotImplementedError):
         sim.Distribution("test", None).sample()
 
-    n = 20
+    n = 42
 
     def check(dist, bounds=None, typ=None, mode=None):
         sample = dist.sample()

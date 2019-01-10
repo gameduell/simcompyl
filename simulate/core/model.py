@@ -6,8 +6,6 @@ from contextlib import contextmanager, ExitStack
 from functools import wraps
 from types import FunctionType
 
-from .engine import NumbaEngine
-
 __all__ = ['Model', 'step']
 
 
@@ -89,7 +87,7 @@ class Specs:
         Parameters
         ----------
         resolve : function
-            function, that given a name and as spec will create an accessor
+            function, that given a name and a spec will create an accessor
 
         """
         self.resolve = resolve
@@ -373,12 +371,6 @@ class Model:
       `apply` works on the complete population.
     * finally, a `finish` step is invoced with the complete population
 
-    Methods
-    -------
-    bind(alloc, complie=None)
-    use(engine, compile=None)
-    execute(engine=None, **params)
-
     """
 
     def __init__(self):
@@ -391,10 +383,6 @@ class Model:
         (self.steps, self.state,
          self.params, self.random, self.derives) = self.__specs__.values()
 
-        self.alloc = None
-        self.engine = NumbaEngine().bind(self, compile=False)
-        self.traces = []
-
         self.__setup__()
 
     def __setup__(self):
@@ -406,90 +394,6 @@ class Model:
         self.iterate()
         self.apply()
         self.finish()
-
-    def bind(self, alloc=None, engine=None, compile=None):
-        """Bind the allocation object to this simlation or use another engine.
-
-        Parameters
-        ----------
-        alloc : Allocation (optional)
-            the allocation to be used by the simulation model
-        engine : Engine (optional)
-            the new engine to use
-        compile : boolean (optional)
-            pass on the compile option to the engine, so it will already
-            precompile the model
-
-        Returns
-        -------
-            self
-                the model itself for further calls
-
-        """
-        if alloc is not None:
-            self.alloc = alloc
-        if engine is not None:
-            self.engine = engine
-        if engine is not None or alloc is not None or compile is not None:
-            self.engine.bind(self, self.alloc, compile=compile)
-        return self
-
-    def execute(self, engine=None, **params):
-        """Execute the simulation on a engine recoding it's resulting state.
-
-        Parameters
-        ----------
-        engine: Engine (optional)
-            the engine to be used for execution
-        params: dict
-            parameters to set on the allocation before executing the model
-
-        Returns
-        -------
-            state
-                the state after running the simulation
-
-        """
-        if self.alloc is None:
-            msg = "No allocation for model, use `model.bind(alloc)` before."
-            raise ValueError(msg)
-
-        if engine is None:
-            engine = self.engine
-        else:
-            engine.bind(self, self.alloc)
-
-        with self.alloc(**params):
-            return engine.execute(self.traces)
-
-    @contextmanager
-    def trace(self, *traces, **opts):
-        """Activte the supplied `Trace` objects inside this context.
-
-        Parameters
-        ----------
-        traces: Trace
-            `Trace` to activate when `execute`ing the simulation
-        opts: dict
-            options to pass on to the trace objects
-        """
-        if len(traces) == 1:
-            trace, = traces
-            if opts:
-                trace = trace.options(**opts)
-            trace.on(self)
-            self.traces.append(trace)
-            try:
-                yield trace.prepare()
-                trace.finalize()
-            finally:
-                after = self.traces.pop()
-                assert after == trace
-
-        else:
-            with ExitStack() as stack:
-                yield tuple([stack.enter_context(self.trace(t, **opts))
-                             for t in traces])
 
     @contextmanager
     def resolving(self, *, steps, state, params, random, derives):

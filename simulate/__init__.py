@@ -19,11 +19,12 @@ from .core.model import Model, step  # noqa: E402
 from .core.alloc import (Allocation, Param, Distribution,
                          Uniform, Bernoulli,
                          Continious, Normal, Exponential)  # noqa: E402
+from .core.trace import Trace  # noqa: E402
+from .core.engine import Execution  # noqa: E402
 from .core import trace  # noqa: E402
 from .core import engine  # noqa: E402
 
 
-__all__ = ['Model', 'step', 'Allocation', 'Param', 'Distribution',
-           'Uniform', 'Bernoulli',
-           'Continious', 'Normal', 'Exponential',
-           'trace', 'engine', 'visual']
+__all__ = ['Model', 'step', 'Allocation', 'Param', 'Distribution', 'Execution',
+           'Uniform', 'Bernoulli', 'Continious', 'Normal', 'Exponential',
+           'trace', 'Trace', 'engine', 'visual']
