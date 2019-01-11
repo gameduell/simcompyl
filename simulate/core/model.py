@@ -6,10 +6,12 @@ from contextlib import contextmanager, ExitStack
 from functools import wraps
 from types import FunctionType
 
+from .util import Resolvable
+
 __all__ = ['Model', 'step']
 
 
-class Specs:
+class Specs(Resolvable):
     """Object for specifing and accessing specific aspects of a simulation.
 
     Specs are callabes accepting keywords with a specification that will be
@@ -59,44 +61,9 @@ class Specs:
         """Get name, value paris of this Specs."""
         return self.specs.items()
 
-    def resolve(self, name, spec):
-        """Resolve the specification returning a default accessor.
-
-        Note that this method will be replacied inside `resolving` contexts
-        by the engine.
-
-        Parameters
-        ----------
-        name : str
-            name of the spec to resolve
-        spec : type or simular
-            value of the specification, should be a type or something simular
-
-        Returns
-        -------
-        accessor
-            an object that can be used to access the spec in the simulation
-
-        """
+    def unresolved(self, name, spec):
+        """Return the spec when no resolver is bound."""
         return spec
-
-    @contextmanager
-    def resolving(self, resolve):
-        """Activate a context where accessors are resolved by the given method.
-
-        Parameters
-        ----------
-        resolve : function
-            function, that given a name and a spec will create an accessor
-
-        """
-        self.resolve = resolve
-        try:
-            yield
-        finally:
-            after = self.resolve
-            del self.resolve
-            assert after == resolve
 
     @contextmanager
     def activate(self, specs):

@@ -11,21 +11,6 @@ from .util import lazy
 from .trace import Frame
 
 
-class Context:
-    """Context given to interact with the engine."""
-
-    def __init__(self, engine):
-        self.engine = engine
-
-    def resolve_function(self, function):
-        """Resolve a function called during simulation."""
-        return self.engine.resolve_function(function)
-
-    def state(self, **defs):
-        """Provide access to the models state."""
-        return self.engine.model.state(**defs)
-
-
 class BasicExecution:
     """Engine to execute a simulation defined by a model."""
 
@@ -59,10 +44,10 @@ class BasicExecution:
     # @lru_cache()
     def tracing(self, trace):
         """Cache of a trace method."""
-        ctx = Context(self)
+        ctx = TraceContext(self)
 
         with self.resolving():
-            return self.compile(nb.njit(trace.trace(ctx)),
+            return self.compile(ctx.resolve_function(trace.trace(ctx)),
                                 vectorize=False)
 
     def run(self, **allocs):
@@ -452,3 +437,18 @@ class NumbaExecution(BasicExecution):
 
 
 DefaultExecution = Execution = NumbaExecution
+
+
+class TraceContext:
+    """Context given to interact with the engine."""
+
+    def __init__(self, engine):
+        self.engine = engine
+
+    def resolve_function(self, function):
+        """Resolve a function called during simulation."""
+        return self.engine.resolve_function(function)
+
+    def state(self, **defs):
+        """Provide access to the models state."""
+        return self.engine.model.state(**defs)
