@@ -11,9 +11,6 @@ with a numba optimized execution of the simualted environment.
   can be simulated within seconds.
 
 The framework can be used to run time-descrete simulation, e.g. you could use
-it to get more insights and predictions of the behaviour of sea-life or you
+it to get more insights and predictions of the behaviour of sea-life or your
 customers. 
-
-It is a general simulation framework, so it should be straight forward simulate
-the sea-life 
 
