@@ -1,0 +1,22 @@
+name: simulate
+channels:
+  - pyviz/label/dev
+  - bokeh/label/dev
+  - numba
+  - pyviz
+  - bokeh
+  - conda-forge
+  - defaults
+
+dependencies:
+  - pandas
+  - numpy
+  - numba
+  - icc_rt
+
+  - pyviz
+  - holoviews
+  - panel
+  - bokeh
+  - python-graphviz
+

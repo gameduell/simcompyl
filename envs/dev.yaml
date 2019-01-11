@@ -1,0 +1,39 @@
+name: simulate
+channels:
+  - pyviz/label/dev
+  - bokeh/label/dev
+  - numba
+  - pyviz
+  - bokeh
+  - conda-forge
+  - defaults
+
+dependencies:
+  - pandas
+  - numpy
+  - numba
+  - icc_rt
+
+  - pyviz
+  - holoviews
+  - panel
+  - bokeh
+  - python-graphviz
+
+  - jupyterlab
+  - pyviz_comms
+  - nodejs
+  # jupyter-labextension install @pyviz/jupyterlab_pyviz
+
+  - pytest
+  - pytest-watch
+  - pytest-cov
+  - pytest-runner
+  - flake8
+  - pylama
+  - pylint
+  - jedi
+  - python-language-server
+  - mypy
+  - tox
+
