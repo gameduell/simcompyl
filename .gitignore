@@ -1,6 +1,7 @@
 __pycache__
 *.egg-info
 dist
+build
 .ropeproject
 .ipynb_checkpoints/
 .pytest_cache

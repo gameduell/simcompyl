@@ -1,4 +1,4 @@
-name: simulate
+name: simulhave
 channels:
   - pyviz/label/dev
   - bokeh/label/dev

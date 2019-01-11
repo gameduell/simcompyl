@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name = "simulave",
+    name = "simulhave",
     description = "Rapid simulations for the behaviour of large populations.",
     version = "0.1",
 

@@ -1,6 +1,6 @@
-import simulave as sim
+import simulhave as sim
 
-from simulave.core.model import Step
+from simulhave.core.model import Step
 from types import FunctionType
 
 

@@ -1,7 +1,7 @@
 import pytest
 
-import simulave as sim
-from simulave.core.model import Step, StepDescriptor, Specs, SpecsCollection
+import simulhave as sim
+from simulhave.core.model import Step, StepDescriptor, Specs, SpecsCollection
 
 
 class Base:

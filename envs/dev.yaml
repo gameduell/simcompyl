@@ -1,4 +1,4 @@
-name: simulate
+name: simulhave
 channels:
   - pyviz/label/dev
   - bokeh/label/dev
@@ -36,4 +36,5 @@ dependencies:
   - python-language-server
   - mypy
   - tox
-
+  - twine
+  - conda-build
