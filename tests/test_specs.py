@@ -1,7 +1,7 @@
 import pytest
 from collections import Counter
 
-from simulate.core.model import Specs
+from simulave.core.model import Specs
 
 
 def test_activation():

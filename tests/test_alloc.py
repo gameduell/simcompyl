@@ -1,5 +1,5 @@
-import simulate as sim
-from simulate.core.alloc import Param, Alloc
+import simulave as sim
+from simulave.core.alloc import Param, Alloc
 
 import pytest
 from collections import Counter

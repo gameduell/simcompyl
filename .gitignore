@@ -1,6 +1,6 @@
-simulate.egg-info
-
 __pycache__
+*.egg-info
+dist
 .ropeproject
 .ipynb_checkpoints/
 .pytest_cache

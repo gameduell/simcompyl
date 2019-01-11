@@ -2,7 +2,7 @@ import pytest
 
 @pytest.fixture(params=['BasicExecution', 'NumbaExecution'])
 def engine(request):
-    import simulate as sim
+    import simulave as sim
     return getattr(sim.engine, request.param)
 
 
