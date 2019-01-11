@@ -1,0 +1,7 @@
+include README.rst requirements.txt
+
+recursive-exclude * __pycache__
+recursive-exclude * *.orig
+prune tests*
+prune doc*
+

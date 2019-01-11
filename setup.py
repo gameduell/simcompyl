@@ -12,7 +12,7 @@ setup(
     install_requires=list(open('requirements.txt').read().strip().split('\n')),
     setup_requires=["pytest-runner"],
     tests_require=['pytest'],
-    packages = ['simulate'],
+    packages = find_packages(exclude=["*.tests", "*.tests.*", "tests.*", "tests"]),
     scripts = [],
     package_data = {},
     license = "MIT",
