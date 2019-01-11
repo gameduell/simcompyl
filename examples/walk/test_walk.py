@@ -2,15 +2,21 @@ import simulate as sim
 
 import holoviews as hv
 import numpy as np
+import pytest
 
 
-def test_execute():
+pytestmark = [pytest.mark.integration,
+              pytest.mark.filterwarnings(
+                  "ignore:numpy.dtype size changed.*:RuntimeWarning")]
+
+
+def test_execute(engine):
     from . import walk
 
     model = walk.ComplexWalk()
     alloc = walk.Simulation() + walk.BasicDistance()
 
-    exec = sim.Execution(model, alloc)
+    exec = engine(model, alloc)
 
     out = exec.run(initial_energy=10)
 
@@ -24,13 +30,13 @@ def test_execute():
     assert len(out.query('energy <= 0')) < limit
 
 
-def test_tracing():
+def test_tracing(engine):
     from . import walk
 
     model = walk.ComplexWalk()
     alloc = walk.Simulation() + walk.BasicDistance()
 
-    exec = sim.Execution(model, alloc)
+    exec = engine(model, alloc)
 
     tr = sim.Trace(['x', 'y']).take(12).skip(6)
     with exec.trace(tr) as pos:

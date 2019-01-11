@@ -135,6 +135,16 @@ class Alloc:
         self.subscribers = []
 
     @property
+    def args(self):
+        """Get arguments tuple that can be used for the `sample` function."""
+        if isinstance(self.value, dict):
+            return tuple(self.value.values())
+        elif isinstance(self.value, (tuple, list)):
+            return tuple(self.value)
+        else:
+            return (self.value,)
+
+    @property
     def name(self):
         """Return the name of the parameter."""
         return self.param.name
