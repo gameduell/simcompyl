@@ -12,3 +12,4 @@ build
 .eggs
 coverage.xml
 coverage/lcov.info
+*.sw?

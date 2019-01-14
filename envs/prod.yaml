@@ -9,7 +9,7 @@ channels:
   - defaults
 
 dependencies:
-  - pandas
+  - pandas=0.23
   - numpy
   - numba
   - icc_rt
