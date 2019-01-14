@@ -229,6 +229,6 @@ class BasicDistance(sim.Allocation):
     initial_y = sim.Normal("initial y coordinate", loc=0, scale=1)
 
     initial_energy = sim.Exponential("Initial energy of individuals",
-                                     scale=1_000)
+                                     scale=1000)
     step_x = sim.Continious("step in x direction", -.1, .1)
     step_y = sim.Continious("step in y direction", -.1, .1)
