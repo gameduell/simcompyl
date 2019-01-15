@@ -307,17 +307,17 @@ class CombinedAllocation(Allocation):
             msg = "Conflict as {} found in multipe base allocations."
             raise TypeError(msg.format(','.join(conflicts)))
 
-        self.bases = bases
+        self._bases = bases
 
     def __iter__(self):
-        return iter(self.bases)
+        return iter(self._bases)
 
     def items(self):
         """Iterate though all keys of all base allocations."""
-        return chain(*[a.items() for a in self.bases])
+        return chain(*[a.items() for a in self._bases])
 
     def __getattr__(self, name):
-        for alloc in self.bases:
+        for alloc in self._bases:
             if hasattr(alloc, name):
                 return getattr(alloc, name)
         else:
@@ -325,17 +325,15 @@ class CombinedAllocation(Allocation):
             raise AttributeError(msg.format(type(self).__name__, name))
 
     def __setattr__(self, name, value):
-        if name.startswith('_') or name == 'bases':
-            super().__setattr__(name, value)
-
-        for alloc in self.bases:
-            if hasattr(alloc, name):
-                return setattr(alloc, name, value)
+        if not name.startswith('_'):
+            for alloc in self._bases:
+                if hasattr(alloc, name):
+                    return setattr(alloc, name, value)
 
         super().__setattr__(name, value)
 
     def __delattr__(self, name):
-        for alloc in self.bases:
+        for alloc in self._bases:
             if hasattr(alloc, name):
                 return delattr(alloc, name)
 
@@ -343,14 +341,14 @@ class CombinedAllocation(Allocation):
 
     def __dir__(self):
         return (super().__dir__()
-                + [d for alloc in self.bases for d in dir(alloc)])
+                + [d for alloc in self._bases for d in dir(alloc)])
 
     def __str__(self):
-        return " + ".join(str(b) for b in self.bases)
+        return " + ".join(str(b) for b in self._bases)
 
     def __repr__(self):
         result = ""
-        for alloc in self.bases:
+        for alloc in self._bases:
             result += "\n" + repr(alloc)
         return result.strip("\n")
 

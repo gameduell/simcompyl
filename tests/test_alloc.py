@@ -160,23 +160,26 @@ def test_combined():
         n = sim.Param("number", 42, help="A natural number", options=(1, None))
 
     class Bar(sim.Allocation):
-        baz = sim.Param("baz", 'other string', options=['a', 'b', 'c'])
+        bar = sim.Param("bar", 'other string', options=['a', 'b', 'c'])
+
+    class Baz(sim.Allocation):
+        baz = sim.Param("baz", True)
 
     foo, bar = foobar = Foo() + Bar()
 
     assert isinstance(foobar, sim.Allocation)
     assert isinstance(foo, sim.Allocation)
     assert isinstance(bar, sim.Allocation)
-    assert isinstance(foobar.baz, Alloc)
+    assert isinstance(foobar.bar, Alloc)
     assert foobar.s.name == "string"
     assert foobar.n.value == 42
     assert dict(foobar) == {'s': foobar.s,
                             'n': foobar.n,
-                            'baz': foobar.baz}
+                            'bar': foobar.bar}
     assert "s" in foobar
     assert "number" in foobar
     assert foobar["string"] == foobar.s
-    assert 'baz' in dir(foobar)
+    assert 'bar' in dir(foobar)
 
     foobar.n = 1337
     assert foobar.n.value == 1337
@@ -186,15 +189,15 @@ def test_combined():
     assert foobar.n.value == 42
     assert foo.n.value == 42
 
-    with foobar(baz=''):
-        assert foobar.baz.value == ''
-        assert bar.baz.value == ''
+    with foobar(bar=''):
+        assert foobar.bar.value == ''
+        assert bar.bar.value == ''
 
-    assert foobar.baz.value == 'other string'
-    assert bar.baz.value == 'other string'
+    assert foobar.bar.value == 'other string'
+    assert bar.bar.value == 'other string'
 
-    foobar.baz.value = 'bla'
-    assert 'baz' in str(foobar)
+    foobar.bar.value = 'bla'
+    assert 'bar' in str(foobar)
     assert 'bla' in str(foobar)
     assert 'Foo' in str(foobar)
 
@@ -202,8 +205,8 @@ def test_combined():
     assert '42' in repr(foobar)
     assert 'Foo' in repr(foobar)
 
-    bar.baz = '...'
-    assert foobar.baz.value == '...'
+    bar.bar = '...'
+    assert foobar.bar.value == '...'
 
     with pytest.raises(AttributeError):
         foobar.nil
@@ -216,6 +219,27 @@ def test_combined():
 
     with pytest.raises(TypeError):
         Foo() + object()
+
+    foobaz = (foo, bar), baz = foobar + Baz()
+
+    assert isinstance(foo, Foo)
+    assert isinstance(bar, Bar)
+    assert isinstance(baz, Baz)
+
+    foobar.n = 23
+    foobaz.bar = 'bar'
+    foobaz.baz = False
+
+    assert foo.n.value == 23
+    assert foobar.n.value == 23
+    assert foobaz.n.value == 23
+
+    assert bar.bar.value == 'bar'
+    assert foobar.bar.value == 'bar'
+    assert foobaz.bar.value == 'bar'
+
+    assert not baz.baz.value
+    assert not foobaz.baz.value
 
 
 def test_distributions():
