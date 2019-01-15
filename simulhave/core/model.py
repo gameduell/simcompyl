@@ -127,9 +127,7 @@ class Specs(Resolvable):
             size = max(len(spec), len(prev or []))
             return [self.validate(None, fst, prv)] * size
 
-        if all(hasattr(prev, a) for a in ['__self__',
-                                          '__call__',
-                                          '__name__']):
+        if all(hasattr(prev, a) for a in ['__self__', '__call__', '__name__']):
             if spec.__name__ != prev.__name__:
                 msg = "Method spec {} with different methods {} previously {}."
                 raise TypeError(msg.format(name, spec.__name__, prev.__name__))
@@ -137,6 +135,18 @@ class Specs(Resolvable):
             if spec.__self__ != prev.__self__:
                 msg = "Method spec {} on different objects {} previously {}."
                 raise TypeError(msg.format(name, spec.__self__, prev.__self__))
+
+            return spec
+
+        if isinstance(prev, tuple) and hasattr(prev[0], '__code__'):
+            if spec[0].__code__ != prev[0].__code__:
+                msg = ("Function spec {} with different code {}:{} "
+                       "previously {}:{}.")
+                raise TypeError(msg.format(name,
+                                           prev[0].__code__.co_filename,
+                                           prev[0].__code__.co_firstlineno,
+                                           spec[0].__code__.co_filename,
+                                           spec[0].__code__.co_firstlineno))
 
             return spec
 

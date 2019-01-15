@@ -3,6 +3,8 @@ import simulhave as sim
 from simulhave.core.model import Step
 from types import FunctionType
 
+import pytest
+
 
 def test_basics():
     mdl = sim.Model()
@@ -46,10 +48,39 @@ def test_specs():
 
     def foo(bar, baz):
         return bar['s'] + baz
+
     mdl.derive(bar={'s': float, 't': float}, baz=float)(foo)
 
     assert dict(mdl.derives) == {'foo(bar,baz)': (
         foo, {'bar': {'s': float, 't': float}, 'baz': float})}
+
+    def deriving():
+        def foo(ps):
+            return ps
+
+        mdl.derive(bar={'s': float, 't': float})(foo)
+        mdl.derive(baz=float)(foo)
+
+        return foo
+
+    foo1 = deriving()
+
+    assert dict(mdl.derives) == {
+        'foo(bar,baz)': (foo, {'bar': {'s': float, 't': float}, 'baz': float}),
+        'foo(bar)': (foo1, {'bar': {'s': float, 't': float}}),
+        'foo(baz)': (foo1, {'baz': float})}
+
+    foo2 = deriving()
+    assert dict(mdl.derives) == {
+        'foo(bar,baz)': (foo, {'bar': {'s': float, 't': float}, 'baz': float}),
+        'foo(bar)': (foo2, {'bar': {'s': float, 't': float}}),
+        'foo(baz)': (foo2, {'baz': float})}
+
+    with pytest.raises(TypeError):
+        def foo(ps):
+            return ps
+
+        mdl.derive(bar={'s': float, 't': float})(foo)
 
     assert dict(mdl.params) == {'n_steps': int,
                                 'n_samples': int,

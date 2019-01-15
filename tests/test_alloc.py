@@ -224,9 +224,14 @@ def test_distributions():
 
     n = 42
 
-    def check(dist, bounds=None, typ=None, mode=None):
-        sample = dist.sample()
-        args = dist.args()
+    def check(dist, bounds=None, typ=None, mode=None, args=None):
+        dist = dist.__get__(dist)
+
+        if args:
+            assert dist.args == args
+
+        sample = dist.param.sample()
+        args = dist.args
 
         cnt = Counter()
         for _ in range(n):
@@ -261,16 +266,16 @@ def test_distributions():
                 assert False
 
     uni = sim.Uniform("uniform", 3, 6)
-    check(uni, bounds=(3, 6), typ=int)
+    check(uni, bounds=(3, 6), typ=int, args=(3, 6))
 
     ber = sim.Bernoulli("bernoulli", .1)
     check(ber, bounds=(False, True), typ=bool, mode=False)
 
     con = sim.Continious("continious", 3, 6)
-    check(con, bounds=(3, 6), typ=float)
+    check(con, bounds=(3, 6), typ=float, args=(3, 6))
 
     nor = sim.Normal("normal", 4., 2)
-    check(nor, typ=float, mode=(2, 6))
+    check(nor, typ=float, mode=(2, 6), args=(4., 2))
 
     exp = sim.Exponential("exponential", 1.5)
-    check(exp, bounds=(0, None), typ=float, mode=(0, 2))
+    check(exp, bounds=(0, None), typ=float, mode=(0, 2), args=(1.5,))

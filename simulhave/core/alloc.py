@@ -137,12 +137,7 @@ class Alloc:
     @property
     def args(self):
         """Get arguments tuple that can be used for the `sample` function."""
-        if isinstance(self.value, dict):
-            return tuple(self.value.values())
-        elif isinstance(self.value, (tuple, list)):
-            return tuple(self.value)
-        else:
-            return (self.value,)
+        return self.param.args(self)
 
     @property
     def name(self):
@@ -159,9 +154,10 @@ class Alloc:
         # TODO validation of values
         prev, self.value = self.value, value
 
-        for s in self.subscribers:
-            # TODO logging
-            s(self.name, prev, value)
+        if prev != value:
+            for s in self.subscribers:
+                # TODO logging
+                s(self.name, prev, value)
 
     def reset(self):
         """Reset the value to the default one of the parameter."""

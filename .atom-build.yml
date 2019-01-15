@@ -1,6 +1,6 @@
-cmd: "py.test --cov=simulave --cov-report=xml; ./coverage/2lcov.sed coverage.xml > coverage/lcov.info"
-name: "py.test"
 cwd: "{PROJECT_PATH}"
+cmd: "coverage run --source simulhave -m pytest; coverage report; coverage xml; ./coverage/2lcov.sed coverage.xml > coverage/lcov.info"
+name: "py.test"
 errorMatch:
     - "E\\s+(?<message>.*)\\n\\n(?<file>[\\/0-9a-zA-Z\\._]+):(?<line>\\d+):\\s+.+"
     - "(?<file>[\\/0-9a-zA-Z\\._]+):(?<line>\\d+):(.*\n([^\n]*\n)+E\\s+)(?<message>.*)"
