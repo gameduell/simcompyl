@@ -31,9 +31,10 @@ class Specs(Resolvable):
 
     """
 
-    def __init__(self):
+    def __init__(self, collect=None):
         """Create a new specification asspect of the simulation."""
         self.specs = {}
+        self._collect = collect
         self._resolve = None
         self._activated = [{}]
 
@@ -173,6 +174,9 @@ class Specs(Resolvable):
                 that can be used to access a value during simulation
 
         """
+        if self._collect:
+            self._collect(**specs)
+
         results = {}
         for name, spec in specs.items():
             prev = self.specs.get(name)
@@ -352,13 +356,16 @@ class Model:
 
     def __init__(self):
         """Create a new model instance initializing its specs."""
+        allocs = Specs()
         self.__specs__ = SpecsCollection(steps=Specs(),
                                          state=Specs(),
-                                         params=Specs(),
+                                         params=Specs(collect=allocs),
                                          random=Specs(),
-                                         derives=Specs())
+                                         derives=Specs(),
+                                         allocs=allocs)
         (self.steps, self.state,
-         self.params, self.random, self.derives) = self.__specs__.values()
+         self.params, self.random,
+         self.derives, self.allocs) = self.__specs__.values()
 
         self.__setup__()
 
@@ -429,7 +436,7 @@ class Model:
         """
         def annotate(fn):
             name = '{}({})'.format(fn.__name__, ','.join(deps))
-            self.params(**deps)
+            self.allocs(**deps)
             return self.derives(**{name: (fn, deps)})
         return annotate
 

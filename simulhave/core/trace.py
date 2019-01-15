@@ -10,18 +10,24 @@ import time
 from .util import lazy
 
 
-def _defop(op, arity=2, reverse=False):
+def _defop(op, arity=None, reverse=False, reduce=False):
     """Create an implementation of an operation on a trace."""
-    if arity == 1:
-        def __applyop__(self):
-            return Apply(self, op)
+    if arity is None:
+        assert reduce is False
 
-    elif arity == 2:
         def __applyop__(self, other):
             return BinaryOp(self, other)
 
         def __applyrop__(self, other):
             return BinaryOp(self, other, op=op, reverse=True)
+
+    elif arity == 1:
+        def __applyop__(self):
+            return Apply0(self, op, reduce=reduce)
+
+    elif arity == 2:
+        def __applyop__(self):
+            return Apply1(self, op, reduce=reduce)
 
     else:
         raise TypeError("Can't define an operator with {} args".format(arity))
@@ -42,11 +48,9 @@ class Trace:
         """Create a new trace."""
         input = args[0] if args else None
         columns = kws.get('columns', input)
-        mods = dict(kws)
-        mods.pop('skip', None)
 
         if cls == Trace:
-            if input is None and columns is None and mods:
+            if input is None and columns is None and kws:
                 return Assign(*args, **kws)
 
             elif (isinstance(columns, list)
@@ -56,15 +60,12 @@ class Trace:
                 return Source(*args, **kws)
         return super().__new__(cls)
 
-    def __init__(self, *inputs, columns=None, skip=None):
+    def __init__(self, *inputs, columns=None):
         """Create transformation with an given input and output columns."""
         if columns is None and inputs:
             columns = inputs[0].columns
-        if skip is None and inputs:
-            skip = inputs[0].skip
         self.inputs = inputs
         self.columns = columns
-        self.skipping = skip
 
     def traces(self, ctx):
         """Tracing methods of the inputs."""
@@ -87,10 +88,6 @@ class Trace:
         if len(names) != len(self.columns):
             raise ValueError("Supplied names should match length of columns.")
         return Trace(self, columns=names)
-
-    def skip(self, n=10):
-        """Only take every n-th step as a trace."""
-        return Trace(self, skip=n)
 
     def __getattr__(self, name):
         """Accessor for a single column of the trace."""
@@ -152,9 +149,9 @@ class Trace:
         """Take the specified number of samples form the data."""
         return self[:num]
 
-    sum = _defop(np.sum, arity=1)
-    mean = _defop(np.mean, arity=1)
-    median = _defop(np.median, arity=1)
+    sum = _defop(np.sum, arity=1, reduce=True)
+    mean = _defop(np.mean, arity=1, reduce=True)
+    median = _defop(np.median, arity=1, reduce=True)
 
     def quantile(self, qs=[.1, .25, .5, .75, .9]):
         """Trace quantiles over the data."""
@@ -165,14 +162,14 @@ class Trace:
 class Source(Trace):
     """Source for trace transformations, selecting columns of the state."""
 
-    def __init__(self, columns, skip=None):
+    def __init__(self, columns):
         assert isinstance(columns, list)
         assert all(isinstance(c, str) for c in columns)
-        super().__init__(columns=columns, skip=skip)
+        super().__init__(columns=columns)
 
     def trace(self, ctx):
         """Return implementation that selects columns on the state."""
-        ixs = np.array(ctx.state(**{c: ... for c in self.columns}))
+        ixs = np.array(ctx.state(True, **{c: ... for c in self.columns}))
 
         def impl(params, raw):
             return raw[:, ixs]
@@ -182,7 +179,7 @@ class Source(Trace):
 class Assign(Trace):
     """Assign a new columns with values from supplied functions."""
 
-    def __init__(self, input=None, skip=None, **assigns):
+    def __init__(self, input=None, **assigns):
         required = set()
         outputs = list(assigns.keys())
         for assign in assigns.values():
@@ -191,7 +188,7 @@ class Assign(Trace):
         columns = list(required)
 
         if input is None:
-            input = Source(columns, skip=skip)
+            input = Source(columns)
             sel = len(columns)
             columns = outputs
         else:
@@ -441,8 +438,9 @@ class Slice(Trace):
 class Frame:
     """Create pandas dataframes out of traces."""
 
-    def __init__(self, trace):
+    def __init__(self, trace, skip=1):
         self.trace = trace
+        self.skip = skip
 
     def frame(self, traces=[], offset=0):
         """Create a dataframe out of the given traces."""
@@ -478,8 +476,8 @@ class Frame:
 class Holotrace(Frame):
     """Publish traces to a `holoviews.Buffer`."""
 
-    def __init__(self, trace, batch=1, timeout=None):
-        super().__init__(trace)
+    def __init__(self, trace, skip=1, batch=1, timeout=None):
+        super().__init__(trace, skip=skip)
 
         import holoviews as hv
         hv.__version__
@@ -518,7 +516,7 @@ class Holotrace(Frame):
             else:
                 df.index += self.offset
 
-            self.offset += len(self.traces)  # * self.trace.skipping
+            self.offset += len(self.traces) * self.skip
             self.traces = []
 
             self.buffer.send(df)

@@ -38,8 +38,8 @@ def test_tracing(engine):
 
     exec = engine(model, alloc)
 
-    tr = sim.Trace(['x', 'y']).take(12).skip(6)
-    with exec.trace(tr) as pos:
+    tr = sim.Trace(['x', 'y']).take(12)
+    with exec.trace(tr, skip=6) as pos:
         exec.run()
 
     assert len(pos) == (alloc.n_steps.value + 1) * 12

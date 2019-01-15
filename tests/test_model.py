@@ -54,6 +54,9 @@ def test_specs():
     assert dict(mdl.derives) == {'foo(bar,baz)': (
         foo, {'bar': {'s': float, 't': float}, 'baz': float})}
 
+    with pytest.raises(TypeError):
+        mdl.params(bar=bool)
+
     def deriving():
         def foo(ps):
             return ps
@@ -85,7 +88,6 @@ def test_specs():
     assert dict(mdl.params) == {'n_steps': int,
                                 'n_samples': int,
                                 'foo': {'a': [int], 'b': [bool]},
-                                'bar': {'s': float, 't': float},
                                 'baz': float}
 
     traces = []

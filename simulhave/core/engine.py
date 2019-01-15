@@ -28,9 +28,9 @@ class BasicExecution:
         # TODO clear lru_cache
 
     @contextmanager
-    def trace(self, *traces, target=Frame):
+    def trace(self, *traces, target=Frame, **options):
         """Activate given traces."""
-        traces = [target(tr) for tr in traces]
+        traces = [target(tr, **options) for tr in traces]
         self.traces.extend(traces)
 
         yield (traces[0].prepare()
@@ -449,6 +449,7 @@ class TraceContext:
         """Resolve a function called during simulation."""
         return self.engine.resolve_function(function)
 
-    def state(self, **defs):
+    @property
+    def state(self):
         """Provide access to the models state."""
-        return self.engine.model.state(**defs)
+        return self.engine.model.state
