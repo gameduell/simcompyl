@@ -164,6 +164,7 @@ def test_invalids():
     tr = sim.Trace(long=lambda a, b, c, d, e, f: 0)
     with pytest.raises(NotImplementedError):
         tr.trace(Ctx())
+<<<<<<< HEAD
 
     model = Generate()
     with pytest.raises(KeyError):
@@ -216,3 +217,5 @@ def test_holoview():
         exec.run(n_steps=2)
     assert ht.buffer == bf
     assert len(bf.data) == 3 * 6
+=======
+>>>>>>> multi-index for frames of traces
