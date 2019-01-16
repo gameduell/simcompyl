@@ -16,7 +16,7 @@ def _defop(op, arity=None, reverse=False, reduce=False):
         assert reduce is False
 
         def __applyop__(self, other):
-            return BinaryOp(self, other)
+            return BinaryOp(self, other, op=op)
 
         def __applyrop__(self, other):
             return BinaryOp(self, other, op=op, reverse=True)
@@ -60,12 +60,22 @@ class Trace:
                 return Source(*args, **kws)
         return super().__new__(cls)
 
-    def __init__(self, *inputs, columns=None):
+    def __init__(self, *inputs, columns=None, index=None):
         """Create transformation with an given input and output columns."""
-        if columns is None and inputs:
-            columns = inputs[0].columns
+        if inputs:
+            if columns is None:
+                columns = inputs[0].columns
+            if index is None:
+                index = inputs[0].index
         self.inputs = inputs
+        self.index = index
         self.columns = columns
+
+    def to(self, target=None, *args, **kws):
+        """Make an instance of the target class with this traces."""
+        if target is None:
+            target = Frame
+        return target(self, *args, **kws)
 
     def traces(self, ctx):
         """Tracing methods of the inputs."""
@@ -79,15 +89,15 @@ class Trace:
             return input(params, raw)
         return impl
 
-    def __frame__(self, traces):
-        """Create a pandas dataframe for the given transformed traces."""
-        return pd.DataFrame(traces, columns=self.columns)
-
     def name(self, *names):
         """Name the columns of the trace."""
         if len(names) != len(self.columns):
             raise ValueError("Supplied names should match length of columns.")
         return Trace(self, columns=names)
+
+    def assign(self, **assings):
+        """Assign new variables by evaluating passed functions on the input."""
+        return Assign(self, **assings)
 
     def __getattr__(self, name):
         """Accessor for a single column of the trace."""
@@ -156,7 +166,9 @@ class Trace:
     def quantile(self, qs=[.1, .25, .5, .75, .9]):
         """Trace quantiles over the data."""
         ps = np.array(qs) * 100
-        return Apply1(self, np.percentile, ps, reduce=len(ps))
+        return Apply1(self, np.percentile, ps,
+                      reduce=len(ps),
+                      index=pd.Index(qs, name='quantile'))
 
 
 class Source(Trace):
@@ -267,7 +279,7 @@ class Filter(Trace):
 
         if len(self.predicate.columns) == 1:
             def impl(params, raw):
-                return input(params, raw)[predicate(params, raw), :]
+                return input(params, raw)[predicate(params, raw)[:, 0]]
 
         elif len(self.predicate.columns) == len(self.input.columns):
             def impl(params, raw):
@@ -283,7 +295,11 @@ class BinaryOp(Trace):
     """Apply a operator on the trace."""
 
     def __init__(self, input, other, op, reverse=False):
+
         if isinstance(other, Trace):
+            if (input.columns != other.columns
+                    and (len(input.columns) != 1 or len(other.columns) != 1)):
+                raise ValueError("Columns to binary operator don't match!")
             super().__init__(input, other)
         else:
             super().__init__(input)
@@ -295,37 +311,34 @@ class BinaryOp(Trace):
         """Return implementation applying the binary op."""
         other = self.other
         op = self.op
+        dtype = op(np.array([]), np.array([])).dtype
 
         if self.reverse:
-            @ctx.reslove
+            @ctx.resolve_function
             def apply(a, b):
                 return op(b, a)
         else:
-            @ctx.reslove
+            @ctx.resolve_function
             def apply(a, b):
                 return op(a, b)
 
         if isinstance(other, pd.Series):
             other = other.loc[self.columns]
 
-        if isinstance(other, (pd.Seres, np.array, list)):
+        if isinstance(other, (pd.Series, np.ndarray, list)):
             other = np.array(other)
             input, = self.traces(ctx)
 
             def impl(params, raw):
                 ins = input(params, raw)
                 m, n = ins.shape
-                result = np.empty((m, n))
+                result = np.empty((m, n), dtype=dtype)
 
                 for i in range(n):
                     result[:, i] = apply(ins[:, i], other[i])
                 return result
 
         elif isinstance(other, Trace):
-            if (other.columns != self.columns
-                    and (len(self.columns) != 1 or len(other.columns) != 1)):
-                raise ValueError("Columns to binary operator don't match!")
-
             fst, snd = self.traces(ctx)
 
             def impl(params, raw):
@@ -334,7 +347,8 @@ class BinaryOp(Trace):
 
                 result = np.empty((m, n))
                 for i in range(n):
-                    result[:, i] = apply(a[i], b[i])
+                    result[:, i] = apply(a[:, i], b[:, i])
+                return result
 
         else:
             input, = self.traces(ctx)
@@ -348,8 +362,10 @@ class BinaryOp(Trace):
 class Apply(Trace):
     """Transformation applying a given function."""
 
-    def __init__(self, input, method, *args, reduce=False):
-        super().__init__(input)
+    def __init__(self, input, method, *args, reduce=False, index=None):
+        if reduce is True and index is None:
+            index = pd.Index([method.__name__], name='method')
+        super().__init__(input, index=index)
         self.method = method
         self.args = args
         self.reduce = reduce
@@ -402,8 +418,17 @@ class Columns(Trace):
     """Subselection on columns."""
 
     def __init__(self, input, columns):
-        assert all(c in input.columns for c in columns)
-        super().__init__(input, columns)
+        if not all(c in input.columns for c in columns):
+            missing = set(columns) - set(input.columns)
+            raise KeyError("{} missing in input {}".format(
+                ", ".join(map(str, missing)),
+                ", ".join(map(str, input.columns))))
+        super().__init__(input, columns=columns)
+
+    @property
+    def input(self):
+        """Get the input of the column operation."""
+        return self.inputs[0]
 
     def trace(self, ctx):
         """Return implementation selecting columns."""
@@ -445,22 +470,30 @@ class Frame:
     def frame(self, traces=[], offset=0):
         """Create a dataframe out of the given traces."""
         # TODO index with offset
-        if not traces:
-            return pd.DataFrame(columns=self.trace.columns)
-        shape = traces[0].shape
-        if len(shape) == 1:
-            return pd.DataFrame(traces, columns=self.trace.columns)
-        elif len(shape) == 2:
-            return pd.DataFrame(np.concatenate(traces),
-                                columns=self.trace.columns)
+
+        columns = pd.Index(self.trace.columns, name='variable')
+
+        if self.trace.index is None:
+            srx = pd.RangeIndex(len(self.traces[0]) if self.traces else 1,
+                                name='sample')
         else:
-            msg = "A trace with {} dimensions is not supported"
-            raise NotImplementedError(msg.format(len(shape)))
+            srx = self.trace.index
+
+        trx = pd.RangeIndex(offset, (len(traces) or 1) + offset, name='trace')
+        idx = pd.MultiIndex.from_product([trx, srx],
+                                         names=(trx.name, srx.name))
+
+        if not traces:
+            return pd.DataFrame(index=idx, columns=columns)
+
+        return pd.DataFrame(np.concatenate(traces),
+                            index=idx,
+                            columns=columns)
 
     def prepare(self):
         """Prepare the internals, called before running a new simulation."""
         self.traces = []
-        self.data = self.frame()
+        self.data = self.frame().iloc[:0]
         return self.data
 
     def publish(self, trace):
@@ -484,6 +517,7 @@ class Holotrace(Frame):
 
         self.batch = batch
         self.timeout = timeout
+        self.traces = []
 
     @lazy
     def buffer(self):
@@ -532,6 +566,7 @@ class Holotrace(Frame):
 
         if len(self.traces) >= self.batch:
             self.push()
+            
         elif (self.timeout is not None
                 and time.time() - self.last > self.timeout):
             self.push()
@@ -539,3 +574,14 @@ class Holotrace(Frame):
     def finalize(self):
         """Ensure that all traces end up in the holoviews buffer."""
         self.push()
+
+    def plot(self, obj, *args, **kws):
+        """Plot the trace data using a holoview object."""
+        import holoviews as hv
+
+        def plotting(data):
+            return (hv.Dataset(data,
+                               kdims=list(data.index.names),
+                               vdims=list(data.columns)).to(obj, *args, **kws)
+                    .overlay())
+        return hv.DynamicMap(plotting, streams=[self.buffer])

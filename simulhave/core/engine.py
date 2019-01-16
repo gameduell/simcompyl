@@ -8,7 +8,7 @@ from collections import namedtuple
 from contextlib import contextmanager
 
 from .util import lazy
-from .trace import Frame
+from .trace import Trace
 
 
 class BasicExecution:
@@ -28,9 +28,10 @@ class BasicExecution:
         # TODO clear lru_cache
 
     @contextmanager
-    def trace(self, *traces, target=Frame, **options):
+    def trace(self, *traces, target=None, **options):
         """Activate given traces."""
-        traces = [target(tr, **options) for tr in traces]
+        traces = [tr.to(target, **options) if isinstance(tr, Trace) else tr
+                  for tr in traces]
         self.traces.extend(traces)
 
         yield (traces[0].prepare()
@@ -220,6 +221,11 @@ class NumbaExecution(BasicExecution):
 
     def compile(self, impl, vectorize=True):
         """Use numba to compile the specified function."""
+        if not hasattr(impl, 'py_func'):
+            msg = ("Function {} seems not to be a numba function, "
+                   "perhaps you forgot the @sim.step decorator")
+            raise AttributeError(msg.format(impl))
+
         if vectorize and self.use_gufunc:
             return nb.guvectorize([(nb.float64[:], nb.float64[:])], '(m),(n)',
                                   fastmath=self.fastmath,
