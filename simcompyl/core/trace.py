@@ -629,6 +629,7 @@ class Holotrace(Frame):
     def plot(self, obj, *args, **kws):
         """Plot the trace data using a holoview object."""
         import holoviews as hv
+        plotting = obj
         if isinstance(obj, type) and issubclass(obj, hv.element.chart.Chart):
             def plotting(data):
                 return self.dataset(data).to(obj, *args, **kws).overlay()
