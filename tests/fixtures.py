@@ -1,5 +1,4 @@
 import pytest
-
 import simcompyl as sim
 
 

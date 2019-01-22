@@ -1,5 +1,4 @@
 from simcompyl.core.util import lazy, LazyDescriptor, Resolvable, Unresolved
-
 import pytest
 
 
