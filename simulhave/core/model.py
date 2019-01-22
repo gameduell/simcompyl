@@ -7,14 +7,15 @@ from functools import wraps
 from types import FunctionType
 
 from .util import Resolvable
+from .trace import Trace
 
 __all__ = ['Model', 'step']
 
 
 class Specs(Resolvable):
-    """Object for specifing and accessing specific aspects of a simulation.
+    """Object for specifying and accessing specific aspects of a simulation.
 
-    Specs are callabes accepting keywords with a specification that will be
+    Specs are callables accepting keywords with a specification that will be
     validated against other uses of the same name.
 
     Internally, this object is also used to glue things up:
@@ -24,15 +25,15 @@ class Specs(Resolvable):
     dictionary, but as well inside an `active` dictionary, that will be
     `activate`d in a context of the models `@step`.
 
-    Morover, the call will return accessors according to the spec that can be
-    used during the execution of the simulation. This is achived by letting the
+    Moreover, the call will return accessors according to the spec that can be
+    used during the execution of the simulation. This is archived by letting the
     execution engine register itself inside the `resolving` context and giving
-    contorl to the engine to create the accessor.
+    control to the engine to create the accessor.
 
     """
 
     def __init__(self, collect=None):
-        """Create a new specification asspect of the simulation."""
+        """Create a new specification aspect of the simulation."""
         self.specs = {}
         self._collect = collect
         self._resolve = None
@@ -95,15 +96,15 @@ class Specs(Resolvable):
         ----------
         name : str
             name for the spec
-        spec : type or simular
+        spec : type or similar
             the new type for the spec
-        prev : type or simular (optional)
+        prev : type or similar (optional)
             previous defined spec if available.
 
         """
         if spec is ...:
             if prev is None:
-                msg = "Invalid specs elipsis for {!r}, no previous definition."
+                msg = "Invalid specs ellipsis for {!r}, no previous definition."
                 raise TypeError(msg.format(name))
             else:
                 return prev
@@ -126,9 +127,11 @@ class Specs(Resolvable):
 
             prv = prev[0] if prev else None
             size = max(len(spec), len(prev or []))
-            return [self.validate(None, fst, prv)] * size
+            return [self.validate('', fst, prv)] * size
 
         if all(hasattr(prev, a) for a in ['__self__', '__call__', '__name__']):
+            assert hasattr(spec, '__self__')
+
             if spec.__name__ != prev.__name__:
                 msg = "Method spec {} with different methods {} previously {}."
                 raise TypeError(msg.format(name, spec.__name__, prev.__name__))
@@ -165,10 +168,10 @@ class Specs(Resolvable):
         return_namedtuple : boolean
             weather to return a namedtuple even when only one spec is given
         **specs : dict
-            name, spec pairs, using the previous value for `name=...` spces
+            name, spec pairs, using the previous value for `name=...` specs
 
-        Retuerns
-        --------
+        Returns
+        -------
             accessor
                 Either a namedtuple of accessors or a single accessor,
                 that can be used to access a value during simulation
@@ -199,7 +202,7 @@ class Specs(Resolvable):
 
 
 class SpecsCollection(dict):
-    """Specialized dict puting together multipe specs.
+    """Specialized dict putting together multiple specs.
 
     This class adds the ability to manage all contained specs togheter.
     """
@@ -250,7 +253,8 @@ def step(method):
     be recorded in each step, at least a `steps` `Specs`, which records all
     calls to `@step` annotated methods.
 
-    >>> @step
+    >>> # noinspection PyUnresolvedReferences
+    ... @step
     ... def somestep(self):
     ...     _somestep = super().somestep()
     ...     _otherstep = self.otherstep()
@@ -258,10 +262,11 @@ def step(method):
     ...     a, b = self.params(a=int, b=int)
     ...     r = self.random(r=bool)
     ...
-    ...     def impl(params, state, arg):
+    ... # noinspection PyUnresolvedReferences
+    ... def impl(params, state, arg):
     ...          arg = 0
     ...
-    ...          while state[v] >= a and state[v] < b
+    ...          while a <= state[v] < b
     ...              if b(param):
     ...                  arg = _otherstep(params, state)
     ...              _somestep(params, state, arg)
@@ -338,6 +343,7 @@ class Step:
         return self.__self__.__specs__['steps'](**{self.__name__: impl})
 
 
+# noinspection PyProtectedMember
 class Model:
     """Base for implementing a fast, compoable simulation model.
 
@@ -347,10 +353,10 @@ class Model:
     Steps
     -----
     * `init` will be called once at the begin of the simulation for each sample
-    * `iterate` and `apply` will be called repititly according to the parameter
+    * `iterate` and `apply` will be called repeated according to the parameter
       `n_step`, where `iterate` works on individuals of the population, while
       `apply` works on the complete population.
-    * finally, a `finish` step is invoced with the complete population
+    * finally, a `finish` step is invoked with the complete population
 
     """
 
@@ -379,9 +385,39 @@ class Model:
         self.apply()
         self.finish()
 
+    def __getattr__(self, name):
+        """Access state variables to trace them."""
+        if name in self.state:
+            return self[name]
+        else:
+            raise AttributeError('{!r} object has no attribute {!r}.'
+                                 .format(type(self).__name__, name))
+
+    def __dir__(self):
+        """List state keys as well."""
+        return list(super().__dir__()) + list(self.state)
+
+    def __getitem__(self, item):
+        """Access state variables to trace them."""
+        if not isinstance(item, tuple):
+            item = (item,)
+        missing = set(item) - set(self.state)
+        if missing:
+            raise KeyError("{} not found in models state."
+                           .format(", ".join(missing)))
+        spec = self.state(True, **{i: ... for i in item})._asdict()
+        return Trace(**spec)
+
+    def __call__(self, **assigns):
+        """Return custom traces form functions based on state variables."""
+        return Trace(**assigns)
+
+    def _ipython_key_completions_(self):
+        return list(self.state)
+
     @contextmanager
     def resolving(self, *, steps, state, params, random, derives):
-        """Use the supplied function for resoliving allocation in `Specs`."""
+        """Use the supplied function for resolving allocation in `Specs`."""
         with self.steps.resolving(steps), \
                 self.state.resolving(state), \
                 self.params.resolving(params), \
@@ -421,7 +457,7 @@ class Model:
         return graph
 
     def derive(self, **deps):
-        """Create a new dynamic prarameter from the supplied parameters.
+        """Create a new dynamic parameter from the supplied parameters.
 
         Parameters
         ----------
@@ -450,13 +486,13 @@ class Model:
                 the implementation function accepting params and state args
 
         """
-        def impl(params, state):
+        def impl(_, __):
             pass
         return impl
 
     @step
     def iterate(self):
-        """Return an implemenetation running one step on each sample.
+        """Return an implementation running one step on each sample.
 
         Returns
         -------
@@ -464,13 +500,13 @@ class Model:
                 the implementation function accepting params and state args
 
         """
-        def impl(params, state):
+        def impl(_, __):
             pass
         return impl
 
     @step
     def apply(self):
-        """Return an implemenetation that updates the complete population.
+        """Return an implementation that updates the complete population.
 
         Returns
         -------
@@ -478,13 +514,13 @@ class Model:
                 the implementation function accepting params and state args
 
         """
-        def impl(params, state):
+        def impl(_, __):
             pass
         return impl
 
     @step
     def finish(self):
-        """Return an implemenetation finializes the complete population.
+        """Return an implementation finalizes the complete population.
 
         Returns
         -------
@@ -492,6 +528,6 @@ class Model:
                 the implementation function accepting params and state args
 
         """
-        def impl(params, state):
+        def impl(_, __):
             pass
         return impl

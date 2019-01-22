@@ -19,14 +19,6 @@ class BasicExecution:
         self.alloc = alloc
         self.traces = []
 
-    def invalidate(self):
-        """Clear up the cached simulation methods."""
-        del self.init
-        del self.iterate
-        del self.apply
-        del self.finish
-        # TODO clear lru_cache
-
     @contextmanager
     def trace(self, *traces, target=None, **options):
         """Activate given traces."""
@@ -34,12 +26,14 @@ class BasicExecution:
                   for tr in traces]
         self.traces.extend(traces)
 
-        yield (traces[0].prepare()
-               if len(traces) == 1
-               else [tr.prepare() for tr in traces])
+        try:
+            yield (traces[0].prepare()
+                   if len(traces) == 1
+                   else [tr.prepare() for tr in traces])
 
-        for tr in traces:
-            tr.finalize()
+        finally:
+            for tr in traces:
+                tr.finalize()
         self.traces = self.traces[:-len(traces)]
 
     # @lru_cache()
@@ -71,11 +65,11 @@ class BasicExecution:
                for tr in self.traces]
 
         if trs:
-            def trace(params, state):
-                for p, t in trs:
-                    p(t(params, state))
+            def trace(pr, st):
+                for pub, tr in trs:
+                    pub(tr(pr, st))
         else:
-            def trace(params, state):
+            def trace(_, __):
                 pass
 
         init(params, state)
@@ -156,11 +150,19 @@ class BasicExecution:
 
     def resolve_params(self, name, typ):
         """Create an accessor for a parameter value."""
-        print(name, typ)
+        if isinstance(typ, dict):
+            def define(key):
+                def dct_getter(params):
+                    return getattr(params, name).value[key]
+                return dct_getter
 
-        def getter(params):
-            return getattr(params, name)
-        return getter
+            Getters = namedtuple('Getters', list(typ))
+            getters = {n: define(n) for n in typ}
+            return Getters(**getters)
+        else:
+            def std_getter(params):
+                return getattr(params, name).value
+            return std_getter
 
     def resolve_random(self, name, typ):
         """Create an accessor for a random distribution."""
@@ -175,7 +177,7 @@ class BasicExecution:
         fn, deps = spec
 
         def getter(params):
-            return fn(*[getattr(params, name) for name in deps])
+            return fn(*[getattr(params, n).value for n in deps])
 
         return getter
 
@@ -217,7 +219,31 @@ class NumbaExecution(BasicExecution):
         self.parallel = parallel
         self.fastmath = fastmath
 
-        self.target = 'parallel' if parallel else 'cpu'
+    def njit(self, *args, **kws):
+        """Call to jit in no-python mode."""
+        return nb.njit(*args, **kws)
+
+    def vjit(self, dtypes, shapes,
+             fastmath=None, nopython=None, parallel=None):
+        if self.use_gufunc:
+            return nb.guvectorize(dtypes, shapes, 
+                                  fastmath=fastmath, nopython=nopython,
+                                  target='parallel' if parallel else 'cpu')
+        else:
+            def vectorize(impl):
+                ext = [tuple(dt.dtype[:, :] if i == 1 else dt
+                             for i, dt in enumerate(dts))
+                       for dts in dtypes]
+
+                @self.njit(ext,
+                           fastmath=fastmath,
+                           nopython=nopython,
+                           parallel=parallel)
+                def vect(params, state):
+                    for i in nb.prange(len(state)):
+                        impl(params, state[i])
+                return vect
+            return vectorize
 
     def compile(self, impl, vectorize=True):
         """Use numba to compile the specified function."""
@@ -226,29 +252,15 @@ class NumbaExecution(BasicExecution):
                    "perhaps you forgot the @sim.step decorator")
             raise AttributeError(msg.format(impl))
 
-        if vectorize and self.use_gufunc:
-            return nb.guvectorize([(nb.float64[:], nb.float64[:])], '(m),(n)',
-                                  fastmath=self.fastmath,
-                                  nopython=True,
-                                  target=self.target)(impl.py_func)
-        elif vectorize and not self.use_gufunc:
-            @nb.njit([(nb.float64[:], nb.float64[:, :])],
-                     fastmath=self.fastmath,
-                     parallel=self.parallel)
-            def vect(params, state):
-                for i in nb.prange(len(state)):
-                    impl(params, state[i])
-
-            return vect
+        if vectorize:
+            return self.vjit([(nb.float64[:], nb.float64[:])], '(m),(n)',
+                             fastmath=self.fastmath,
+                             nopython=True,
+                             parallel=self.parallel)(impl.py_func)
         else:
-            return nb.njit([(nb.float64[:], nb.float64[:, :])],
-                           fastmath=True,
-                           parallel=True)(impl.py_func)
-
-    def invalidate(self):
-        """Invilidate all cached methods as well as the params layout cache."""
-        super().invalidate()
-        del self.layout
+            return self.njit([(nb.float64[:], nb.float64[:, :])],
+                             fastmath=self.fastmath,
+                             parallel=self.parallel)(impl.py_func)
 
     @lazy
     def layout(self):
@@ -262,7 +274,7 @@ class NumbaExecution(BasicExecution):
                 layout.append(name)
                 for n, ts in spec.items():
                     assert len(ts) == bound
-                    layout.extend((name, n) for t in ts)
+                    layout.extend((name, n) for _ in ts)
             else:
                 layout.append(name)
 
@@ -275,6 +287,9 @@ class NumbaExecution(BasicExecution):
                     if isinstance(typ, dict) else typ()
                     for typ in deps.values()]
             result = fn(*args)
+
+            if isinstance(result, list):
+                result = np.array(result)
 
             if isinstance(result, np.ndarray):
                 layout.extend([name] * len(result.shape))
@@ -301,9 +316,9 @@ class NumbaExecution(BasicExecution):
                 assert size <= bound
 
                 params.append(size)
-                for name in spec.keys():
-                    params.extend(val[name])
-                    params.extend([0] * (bound - len(val[name])))
+                for key in spec.keys():
+                    params.extend(val[key])
+                    params.extend([0] * (bound - len(val[key])))
 
             else:
                 params.append(val)
@@ -330,6 +345,12 @@ class NumbaExecution(BasicExecution):
             args = [getattr(self.alloc, name).value for name in deps.keys()]
             real = fn(*args)
 
+            if isinstance(virt, list):
+                virt = np.array(virt)
+
+            if isinstance(real, list):
+                real = np.array(real)
+
             if isinstance(virt, np.ndarray):
                 assert(len(virt.ravel()) >= len(real.ravel()))
                 params.extend(real.shape)
@@ -349,19 +370,19 @@ class NumbaExecution(BasicExecution):
 
     def resolve_steps(self, name, impl):
         """Return the binding for the given step."""
-        return nb.njit(impl)
+        return self.njit(impl)
 
     def resolve_params(self, name, typ):
         """Return the binding for a given parameter."""
         if isinstance(typ, dict):
             lx = self.layout.index(name)
 
-            def define(idx, typs):
-                @nb.njit
-                def getter(params):
+            def define(ix, _):
+                @self.njit
+                def dct_getter(params):
                     size = int(params[lx])
-                    return params[idx:idx + size]
-                return getter
+                    return params[ix:ix + size]
+                return dct_getter
 
             Getters = namedtuple('Getters', list(typ))
             getters = {n: define(self.layout.index((name, n)), ts)
@@ -371,25 +392,25 @@ class NumbaExecution(BasicExecution):
         else:
             idx = self.layout.index(name)
 
-            @nb.njit
-            def getter(params):
+            @self.njit
+            def std_getter(params):
                 return typ(params[idx])
-            return getter
+            return std_getter
 
     def resolve_random(self, name, typ):
         """Return the binding for a given distribution parameter."""
         dist = getattr(self.alloc, name)
         idx = self.layout.index(name)
 
-        sample = nb.njit(dist.param.sample())
+        sample = self.njit(dist.param.sample())
         # XXX type casting for random
         if dist.param.arity == 1:
-            @nb.njit
+            @self.njit
             def rand(params):
                 return sample(params[idx])
 
         elif dist.param.arity == 2:
-            @nb.njit
+            @self.njit
             def rand(params):
                 return sample(params[idx], params[idx + 1])
 
@@ -408,21 +429,24 @@ class NumbaExecution(BasicExecution):
                 for typ in deps.values()]
         result = fn(*args)
 
+        if isinstance(result, list):
+            result = np.array(result)
+
         if isinstance(result, np.ndarray):
             s = len(result.shape)
             typ = result.dtype
 
             if s == 1:
-                @nb.njit
+                @self.njit
                 def der(params):
                     size = int(params[idx])
                     return params[idx + 1:idx + 1 + size]
             elif s == 2:
-                @nb.njit
+                @self.njit
                 def der(params):
                     a = int(params[idx])
                     b = int(params[idx + 1])
-                    return (params[(idx + 1):idx + 1 + a * b]
+                    return (params[(idx + 2):idx + 2 + a * b]
                             .copy().reshape((a, b)).astype(typ))
             else:
                 raise NotImplementedError
@@ -430,16 +454,36 @@ class NumbaExecution(BasicExecution):
         elif isinstance(result, tuple):
             s = len(result)
 
-            @nb.njit
+            @self.njit
             def der(params):
                 return params[idx:idx + s]
 
         else:
-            @nb.njit
+            @self.njit
             def der(params):
                 return params[idx]
 
         return der
+
+
+class PseudoNumbaExecution(NumbaExecution):
+    def __init__(self, model, alloc):
+        super().__init__(model, alloc, use_gufunc=False)
+
+    def njit(self, *args, **kws):
+        def decorate(fn):
+            return fn
+
+        if len(args) == 1 and not kws:
+            return decorate(args[0])
+
+        return decorate
+
+    def compile(self, impl, vectorize=True):
+        if vectorize:
+            return self.vjit([()], None)(impl)
+        else:
+            return self.njit(impl)
 
 
 DefaultExecution = Execution = NumbaExecution
@@ -459,3 +503,8 @@ class TraceContext:
     def state(self):
         """Provide access to the models state."""
         return self.engine.model.state
+
+    @property
+    def params(self):
+        """Provide access to the models state."""
+        return self.engine.model.params

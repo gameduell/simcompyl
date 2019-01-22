@@ -1,5 +1,5 @@
 """
-An allocation takes care of binding different vairables to concrete values.
+An allocation takes care of binding different variables to concrete values.
 
 The allocation of the parameters and random variables is handled outside the
 scope of the model, as
@@ -20,11 +20,11 @@ from inspect import signature
 
 __all__ = ['Allocation', 'Param', 'Distribution',
            'Uniform', 'Bernoulli',
-           'Continious', 'Normal', 'Exponential']
+           'Continuous', 'Normal', 'Exponential']
 
 
 class Param:
-    """The Param descriptor defines infomation about a single parameter.
+    """The Param descriptor defines information about a single parameter.
 
     Attributes
     ----------
@@ -37,7 +37,7 @@ class Param:
     options : tuple, list or dict thereof
         restrictions on the values, could be
         - a tuple with lower and upper bounds
-        - a list of avialable options
+        - a list of available options
         - or a dict thereof, if the values is a dict
 
     """
@@ -56,7 +56,7 @@ class Param:
         options : tuple, list or dict thereof (optional)
             restrictions on the values, could be
             - a tuple with lower and upper bounds
-            - a list of avialable options
+            - a list of available options
             - or a dict thereof, if the values is a dict
 
         """
@@ -79,9 +79,9 @@ class Param:
 
         return 1
 
-    def alloc(self, object):
+    def alloc(self, obj):
         """Return the `Alloc`-instance of this Param for the given object."""
-        return self.allocs.setdefault(object, Alloc(self))
+        return self.allocs.setdefault(obj, Alloc(self))
 
     def __get__(self, instance, owner=None):
         """Access the alloc instance for this parameter."""
@@ -108,7 +108,7 @@ class Param:
 
 
 class Alloc:
-    """Instance of a parameter with a concreate value.
+    """Instance of a parameter with a concrete value.
 
     Attributes
     ----------
@@ -122,14 +122,14 @@ class Alloc:
     subscribe(callback):
         subscribe a `callback(name, old, new)` for changes on the value
     update(value) :
-        assigns a new value to the parameter, notifying subcribers
+        assigns a new value to the parameter, notifying subscribers
 
     """
 
     __slots__ = ('param', 'value', 'subscribers')
 
     def __init__(self, param, value=None):
-        """Create a new alloc refering to the given Param object."""
+        """Create a new alloc referring to the given Param object."""
         self.param = param
         self.value = value or param.default
         self.subscribers = []
@@ -172,7 +172,7 @@ class Alloc:
         try:
             signature(callback).bind('', None, None)
         except TypeError as e:
-            msg = "Callback should accept 3 positinal args (name, old, new)."
+            msg = "Callback should accept 3 positional args (name, old, new)."
             raise TypeError(msg) from e
 
         self.subscribers.append(callback)
@@ -297,6 +297,8 @@ class CombinedAllocation(Allocation):
     """A combination of other allocation objects."""
 
     def __init__(self, *bases):
+        super().__init__()
+
         conflicts = set()
         keys = set()
         for b in bases:
@@ -304,7 +306,7 @@ class CombinedAllocation(Allocation):
             keys.update(b.keys())
 
         if conflicts:
-            msg = "Conflict as {} found in multipe base allocations."
+            msg = "Conflict as {} found in multiple base allocations."
             raise TypeError(msg.format(','.join(conflicts)))
 
         self._bases = bases
@@ -317,12 +319,13 @@ class CombinedAllocation(Allocation):
         return chain(*[a.items() for a in self._bases])
 
     def __getattr__(self, name):
-        for alloc in self._bases:
-            if hasattr(alloc, name):
-                return getattr(alloc, name)
-        else:
-            msg = '{!r} object has no attribute {!r}'
-            raise AttributeError(msg.format(type(self).__name__, name))
+        if not name.startswith('_'):
+            for alloc in self._bases:
+                if hasattr(alloc, name):
+                    return getattr(alloc, name)
+
+        msg = '{!r} object has no attribute {!r}'
+        raise AttributeError(msg.format(type(self).__name__, name))
 
     def __setattr__(self, name, value):
         if not name.startswith('_'):
@@ -340,7 +343,7 @@ class CombinedAllocation(Allocation):
         super().__delattr__(name)
 
     def __dir__(self):
-        return (super().__dir__()
+        return (list(super().__dir__())
                 + [d for alloc in self._bases for d in dir(alloc)])
 
     def __str__(self):
@@ -362,7 +365,7 @@ class Distribution(Param):
         Returns
         -------
         impl(...)
-            function taking parameters values as args returing a sample of
+            function taking parameters values as args returning a sample of
             the distribution
 
         """
@@ -376,21 +379,21 @@ class Distribution(Param):
         elif isinstance(val, (tuple, list)):
             return tuple(val)
         else:
-            return (val,)
+            return val,
 
 
 class Uniform(Distribution):
     """Parameters for a uniform distribution."""
 
     def __init__(self, name, low, high, help=None, options=None):
-        """Cerate a new uniform distribution.
+        """Create a new uniform distribution.
 
         Parameters
         ----------
         low : int
             lowest number for uniform distribution
         high : int
-            heighst number for uniform distribution
+            highest number for uniform distribution
         help : str (optional)
             long description for this parameter
         options : tuple (optional)
@@ -409,16 +412,16 @@ class Bernoulli(Distribution):
     """Parameters for a bernoulli distribution."""
 
     def __init__(self, name, p, **kws):
-        """Cerate a new bernoulli distribution.
+        """Create a new bernoulli distribution.
 
         Parameters
         ----------
         p : float
-            probability of success for single triels
+            probability of success for single trials
         low : int
             lowest number for uniform distribution
         high : int
-            heighst number for uniform distribution
+            highst number for uniform distribution
         help : str (optional)
             long description for this parameter
         options : tuple (optional)
@@ -433,18 +436,18 @@ class Bernoulli(Distribution):
         return impl
 
 
-class Continious(Distribution):
+class Continuous(Distribution):
     """Parameters for a uniform continues distribution."""
 
     def __init__(self, name, low, high, help=None, options=None):
-        """Cerate a new continious distribution.
+        """Create a new continuous distribution.
 
         Parameters
         ----------
         low : float
             lowest number for uniform distribution
         high : float
-            heighst number for uniform distribution
+            highst number for uniform distribution
         help : str (optional)
             long description for this parameter
         options : tuple (optional)
@@ -453,7 +456,7 @@ class Continious(Distribution):
         super().__init__(name, (low, high), help=help, options=options)
 
     def sample(self):
-        """Get sampling method for the continous distribution."""
+        """Get sampling method for the continuous distribution."""
         def impl(low, high):
             return np.random.uniform(low, high)
         return impl
@@ -463,13 +466,13 @@ class Normal(Distribution):
     """Parameters for a normal distribution."""
 
     def __init__(self, name, loc, scale, help=None, options=None):
-        """Cerate a new continious distribution.
+        """Create a new continuious distribution.
 
         Parameters
         ----------
         loc : float
            mean of the normal distribution
-        sclae : float
+        scale : float
            deviation of the normal distribution
         help : str (optional)
             long description for this parameter
@@ -487,14 +490,14 @@ class Normal(Distribution):
 
 
 class Exponential(Distribution):
-    """Parameters for a exponentail distribution."""
+    """Parameters for a exponential distribution."""
 
     def __init__(self, name, scale, **kws):
-        """Cerate a new normal distribution.
+        """Create a new normal distribution.
 
         Parameters
         ----------
-        sclae : float
+        scale : float
             scale of the exponential distribution
         help : str (optional)
             long description for this parameter

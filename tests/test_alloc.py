@@ -211,6 +211,14 @@ def test_combined():
     with pytest.raises(AttributeError):
         foobar.nil
 
+    bar._attr = None
+    with pytest.raises(AttributeError):
+        foobar._attr
+
+    foobar._other = None
+    with pytest.raises(AttributeError):
+        bar._other
+
     with pytest.raises(AttributeError):
         del foobar.nil
 
@@ -280,14 +288,11 @@ def test_distributions():
                 assert isinstance(s, typ)
 
         if cnt:
-            print(cnt)
             m = max(cnt.items(), key=lambda it: it[1])[0]
             if isinstance(mode, int):
                 assert m == mode
             elif isinstance(mode, tuple):
                 assert m
-            else:
-                assert False
 
     uni = sim.Uniform("uniform", 3, 6)
     check(uni, bounds=(3, 6), typ=int, args=(3, 6))
@@ -295,7 +300,7 @@ def test_distributions():
     ber = sim.Bernoulli("bernoulli", .1)
     check(ber, bounds=(False, True), typ=bool, mode=False)
 
-    con = sim.Continious("continious", 3, 6)
+    con = sim.Continuous("continuous", 3, 6)
     check(con, bounds=(3, 6), typ=float, args=(3, 6))
 
     nor = sim.Normal("normal", 4., 2)

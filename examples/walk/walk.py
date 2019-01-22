@@ -230,5 +230,5 @@ class BasicDistance(sim.Allocation):
 
     initial_energy = sim.Exponential("Initial energy of individuals",
                                      scale=1000)
-    step_x = sim.Continious("step in x direction", -.1, .1)
-    step_y = sim.Continious("step in y direction", -.1, .1)
+    step_x = sim.Continuous("step in x direction", -.1, .1)
+    step_y = sim.Continuous("step in y direction", -.1, .1)

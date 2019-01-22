@@ -38,14 +38,14 @@ def test_tracing(engine):
 
     exec = engine(model, alloc)
 
-    tr = sim.Trace(['x', 'y']).take(12)
+    tr = model['x', 'y'].take(12)
     with exec.trace(tr, skip=6) as pos:
         exec.run()
 
     assert len(pos) == (alloc.n_steps.value + 1) * 12
     assert list(pos.columns) == ['x', 'y']
 
-    qr = (sim.Trace(dist=lambda x, y: np.sqrt(x ** 2 + y ** 2))
+    qr = (model(dist=lambda x, y: np.sqrt(x ** 2 + y ** 2))
           .quantile([.25, .5, .75]))
 
     with exec.trace(tr, qr, target=sim.trace.Holotrace) as (pos, dist):

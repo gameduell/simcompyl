@@ -3,7 +3,7 @@ import functools
 import weakref
 from contextlib import contextmanager
 
-__all__ = ['lazy']
+__all__ = ['lazy', 'Resolvable']
 
 
 class LazyDescriptor:
@@ -47,6 +47,15 @@ class Unresolved:
         self.args = args
         self.kws = kws
 
+    def __eq__(self, other):
+        if isinstance(other, Unresolved):
+            return self.args == other.args and self.kws == other.kws
+        else:
+            return False
+
+    def __hash__(self):
+        return hash(self.args) ^ hash(frozenset(sorted(self.kws.items())))
+
     def __iter__(self):
         return iter(self.args + tuple(self.kws.values()))
 
@@ -58,14 +67,15 @@ class Resolvable:
     that can be later used to `resolve` things.
 
     If no `resolver` is bound, it will return the result of the `unresolved`
-    method, normaly an instance of the `Unresolved` class.
+    method, normally an instance of the `Unresolved` class.
     """
+    _resolver = None
 
     def resolve(self, *args, **kws):
-        if hasattr(self, '_resolver'):
-            return self._resolver(*args, **kws)
-        else:
+        if self._resolver is None:
             return self.unresolved(*args, **kws)
+        else:
+            return self._resolver(*args, **kws)
 
     def unresolved(self, *args, **kws):
         return Unresolved(*args, **kws)
@@ -73,5 +83,7 @@ class Resolvable:
     @contextmanager
     def resolving(self, resolver):
         self._resolver = resolver
-        yield
-        del self._resolver
+        try:
+            yield
+        finally:
+            del self._resolver

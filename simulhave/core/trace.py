@@ -33,6 +33,7 @@ def _defop(op, arity=None, reverse=False, reduce=False):
         raise TypeError("Can't define an operator with {} args".format(arity))
 
     if reverse:
+        assert arity is None
         return __applyop__, __applyrop__
     else:
         return __applyop__
@@ -46,28 +47,25 @@ class Trace:
 
     def __new__(cls, *args, **kws):
         """Create a new trace."""
-        input = args[0] if args else None
-        columns = kws.get('columns', input)
+        if cls == Trace and not args:
+            if all(isinstance(v, (type, list)) for v in kws.values()):
+                return State(**kws)
 
-        if cls == Trace:
-            if input is None and columns is None and kws:
-                return Assign(*args, **kws)
+            if all(hasattr(v, '__call__') for v in kws.values()):
+                return Assign(**kws)
 
-            elif (isinstance(columns, list)
-                  and all(isinstance(c, str) for c in columns)
-                  and not kws
-                  and (input is None or input is columns)):
-                return Source(*args, **kws)
+            msg = "Expecting a state spec or assignments as keywords."
+            raise TypeError(msg)
         return super().__new__(cls)
 
-    def __init__(self, *inputs, columns=None, index=None):
-        """Create transformation with an given input and output columns."""
-        if inputs:
+    def __init__(self, *sources, columns=None, index=None):
+        """Create transformation with an given source and output columns."""
+        if sources:
             if columns is None:
-                columns = inputs[0].columns
+                columns = sources[0].columns
             if index is None:
-                index = inputs[0].index
-        self.inputs = inputs
+                index = sources[0].index
+        self.sources = sources
         self.index = index
         self.columns = columns
 
@@ -78,15 +76,15 @@ class Trace:
         return target(self, *args, **kws)
 
     def traces(self, ctx):
-        """Tracing methods of the inputs."""
-        return [ctx.resolve_function(tr.trace(ctx)) for tr in self.inputs]
+        """Tracing methods of the sources."""
+        return [ctx.resolve_function(tr.trace(ctx)) for tr in self.sources]
 
     def trace(self, ctx):
         """Return numba compatible implementation method."""
-        input, = self.traces(ctx)
+        source, = self.traces(ctx)
 
         def impl(params, raw):
-            return input(params, raw)
+            return source(params, raw)
         return impl
 
     def name(self, *names):
@@ -96,7 +94,7 @@ class Trace:
         return Trace(self, columns=names)
 
     def assign(self, **assings):
-        """Assign new variables by evaluating passed functions on the input."""
+        """Assign new variables by evaluating passed functions on the source."""
         return Assign(self, **assings)
 
     def __getattr__(self, name):
@@ -163,35 +161,64 @@ class Trace:
     mean = _defop(np.mean, arity=1, reduce=True)
     median = _defop(np.median, arity=1, reduce=True)
 
-    def quantile(self, qs=[.1, .25, .5, .75, .9]):
+    def quantile(self, qs=(.1, .25, .5, .75, .9)):
         """Trace quantiles over the data."""
         ps = np.array(qs) * 100
         return Apply1(self, np.percentile, ps,
                       reduce=len(ps),
                       index=pd.Index(qs, name='quantile'))
 
+    def __str__(self):
+        """Show content of the trace."""
+        return "{}[{}]".format(type(self).__name__,
+                               ",".join(self.columns))
 
-class Source(Trace):
-    """Source for trace transformations, selecting columns of the state."""
+    __repr__ = __str__
 
-    def __init__(self, columns):
-        assert isinstance(columns, list)
-        assert all(isinstance(c, str) for c in columns)
+
+class State(Trace):
+    """Trace some part of the state."""
+
+    def __init__(self, **specs):
+        columns = sum([["{}.{}".format(n, i) for i, _ in enumerate(s)]
+                       if isinstance(s, list) else [n]
+                       for n, s in specs.items()], [])
         super().__init__(columns=columns)
+        self.specs = specs
 
     def trace(self, ctx):
         """Return implementation that selects columns on the state."""
-        ixs = np.array(ctx.state(True, **{c: ... for c in self.columns}))
+        ixs = np.array([ix if isinstance(ix, list) else [ix]
+                        for ix in ctx.state(True, **self.specs)]).ravel()
 
-        def impl(params, raw):
+        def impl(_, raw):
             return raw[:, ixs]
+        return impl
+
+
+class Param(Trace):
+    """Bring some parameter into the trace algebra."""
+
+    def __init__(self, **specs):
+        columns = sum([["{}.{}".format(n, i) for i, _ in enumerate(s)]
+                       if isinstance(s, list) else [n]
+                       for n, s in specs.items()], [])
+        super().__init__(columns=columns)
+        self.specs = specs
+
+    def trace(self, ctx):
+        """Return implementation that selects parameters."""
+        ps = ctx.params(True, **self.specs)
+
+        def impl(params, _):
+            return [p(params) for p in ps]
         return impl
 
 
 class Assign(Trace):
     """Assign a new columns with values from supplied functions."""
 
-    def __init__(self, input=None, **assigns):
+    def __init__(self, source=None, **assigns):
         required = set()
         outputs = list(assigns.keys())
         for assign in assigns.values():
@@ -199,41 +226,41 @@ class Assign(Trace):
             required.update(sig.parameters)
         columns = list(required)
 
-        if input is None:
-            input = Source(columns)
+        if source is None:
+            source = State(**{c: ... for c in columns})
             sel = len(columns)
             columns = outputs
         else:
             sel = 0
-            columns = input.columns + outputs
+            columns = source.columns + outputs
 
-        missing = set(input.columns) - required
+        missing = set(source.columns) - required
         if missing:
             msg = "Input of assign is missing the following columns: {}"
             raise ValueError(msg.format(", ".join(missing)))
 
-        super().__init__(input, columns=columns)
+        super().__init__(source, columns=columns)
         self.assigns = assigns
         self.select = sel
 
     def trace(self, ctx):
         """Add assignments to the trace."""
-        def bound(input, idx, fn):
-            if len(idx) == 1:
+        def bound(src, ix, fn):
+            if len(ix) == 1:
                 @ctx.resolve_function
                 def call(raw):
-                    return fn(raw[:, idx[0]])
-            elif len(idx) == 2:
+                    return fn(raw[:, ix[0]])
+            elif len(ix) == 2:
                 @ctx.resolve_function
                 def call(raw):
-                    return fn(raw[:, idx[0]], raw[:, idx[1]])
+                    return fn(raw[:, ix[0]], raw[:, ix[1]])
             else:
                 msg = "Assign with {} args not supported currently."
-                raise NotImplementedError(msg.format(len(idx)))
+                raise NotImplementedError(msg.format(len(ix)))
 
             @ctx.resolve_function
-            def impl(params, raw):
-                ins = input(params, raw)
+            def impl(pr, raw):
+                ins = src(pr, raw)
 
                 new = np.empty((len(ins), 1))
                 new[:, 0] = call(ins)
@@ -241,17 +268,16 @@ class Assign(Trace):
                 return np.concatenate((ins, new), axis=1)
             return impl
 
-        input, = self.traces(ctx)
+        source, = self.traces(ctx)
         for assign in self.assigns.values():
             params = inspect.signature(assign).parameters
-            idx = np.array([self.inputs[0].columns.index(p) for p in params])
-            fn = ctx.resolve_function(assign)
-            input = bound(input, idx, fn)
+            idx = np.array([self.sources[0].columns.index(p) for p in params])
+            source = bound(source, idx, ctx.resolve_function(assign))
 
         sel = self.select
 
-        def select(params, raw):
-            ins = input(params, raw)
+        def select(pr, raw):
+            ins = source(pr, raw)
             return ins[:, sel:]
 
         return select
@@ -260,33 +286,33 @@ class Assign(Trace):
 class Filter(Trace):
     """Filtering along the samples using a predicate trace."""
 
-    def __init__(self, input, predicate):
-        super().__init__(input, predicate)
+    def __init__(self, source, predicate):
+        super().__init__(source, predicate)
 
     @property
-    def input(self):
-        """Get the input to the filter."""
-        return self.inputs[0]
+    def source(self):
+        """Get the source to the filter."""
+        return self.sources[0]
 
     @property
     def predicate(self):
         """Get the predicate of the filter."""
-        return self.inputs[1]
+        return self.sources[1]
 
     def trace(self, ctx):
         """Return implementation applying the predicate."""
-        input, predicate = self.traces(ctx)
+        source, predicate = self.traces(ctx)
 
         if len(self.predicate.columns) == 1:
             def impl(params, raw):
-                return input(params, raw)[predicate(params, raw)[:, 0]]
+                return source(params, raw)[predicate(params, raw)[:, 0]]
 
-        elif len(self.predicate.columns) == len(self.input.columns):
+        elif len(self.predicate.columns) == len(self.source.columns):
             def impl(params, raw):
-                return input(params, raw)[predicate(params, raw)]
+                return source(params, raw)[predicate(params, raw)]
 
         else:
-            raise ValueError("Sizes of predicate not match input.")
+            raise ValueError("Sizes of predicate not match source.")
 
         return impl
 
@@ -294,15 +320,15 @@ class Filter(Trace):
 class BinaryOp(Trace):
     """Apply a operator on the trace."""
 
-    def __init__(self, input, other, op, reverse=False):
+    def __init__(self, source, other, op, reverse=False):
 
         if isinstance(other, Trace):
-            if (input.columns != other.columns
-                    and (len(input.columns) != 1 or len(other.columns) != 1)):
+            if (source.columns != other.columns
+                    and (len(source.columns) != 1 or len(other.columns) != 1)):
                 raise ValueError("Columns to binary operator don't match!")
-            super().__init__(input, other)
+            super().__init__(source, other)
         else:
-            super().__init__(input)
+            super().__init__(source)
         self.other = other
         self.op = op
         self.reverse = reverse
@@ -327,10 +353,10 @@ class BinaryOp(Trace):
 
         if isinstance(other, (pd.Series, np.ndarray, list)):
             other = np.array(other)
-            input, = self.traces(ctx)
+            source, = self.traces(ctx)
 
             def impl(params, raw):
-                ins = input(params, raw)
+                ins = source(params, raw)
                 m, n = ins.shape
                 result = np.empty((m, n), dtype=dtype)
 
@@ -351,10 +377,10 @@ class BinaryOp(Trace):
                 return result
 
         else:
-            input, = self.traces(ctx)
+            source, = self.traces(ctx)
 
             def impl(params, raw):
-                return apply(input(params, raw), other)
+                return apply(source(params, raw), other)
 
         return impl
 
@@ -362,10 +388,10 @@ class BinaryOp(Trace):
 class Apply(Trace):
     """Transformation applying a given function."""
 
-    def __init__(self, input, method, *args, reduce=False, index=None):
+    def __init__(self, source, method, *args, reduce=False, index=None):
         if reduce is True and index is None:
             index = pd.Index([method.__name__], name='method')
-        super().__init__(input, index=index)
+        super().__init__(source, index=index)
         self.method = method
         self.args = args
         self.reduce = reduce
@@ -374,10 +400,10 @@ class Apply(Trace):
         """Return implementation applying a method on each column."""
         apply = ctx.resolve_function(self.apply())
         reduce = int(self.reduce)
-        input, = self.traces(ctx)
+        source, = self.traces(ctx)
 
         def impl(params, raw):
-            ins = input(params, raw)
+            ins = source(params, raw)
             m, n = ins.shape
             if reduce:
                 m = reduce
@@ -417,57 +443,59 @@ class Apply1(Apply):
 class Columns(Trace):
     """Subselection on columns."""
 
-    def __init__(self, input, columns):
-        if not all(c in input.columns for c in columns):
-            missing = set(columns) - set(input.columns)
-            raise KeyError("{} missing in input {}".format(
+    def __init__(self, source, columns):
+        if not all(c in source.columns for c in columns):
+            missing = set(columns) - set(source.columns)
+            raise KeyError("{} missing in source {}".format(
                 ", ".join(map(str, missing)),
-                ", ".join(map(str, input.columns))))
-        super().__init__(input, columns=columns)
+                ", ".join(map(str, source.columns))))
+        super().__init__(source, columns=columns)
 
     @property
-    def input(self):
-        """Get the input of the column operation."""
-        return self.inputs[0]
+    def source(self):
+        """Get the source of the column operation."""
+        return self.sources[0]
 
     def trace(self, ctx):
         """Return implementation selecting columns."""
-        ixs = [self.input.columns.index(c) for c in self.columns]
-        input, = self.traces(ctx)
+        ixs = np.array([self.source.columns.index(c) for c in self.columns])
+        source, = self.traces(ctx)
 
         def impl(params, raw):
-            return input(params, raw)[:, ixs]
+            return source(params, raw)[:, ixs]
         return impl
 
 
 class Slice(Trace):
     """Select a slice of the data."""
 
-    def __init__(self, input, slice):
-        super().__init__(input)
-        self.slice = slice
+    def __init__(self, source, select):
+        super().__init__(source)
+        self.select = select
 
     def trace(self, ctx):
         """Return implementation selecting a slice."""
-        start = self.slice.start or 0
-        stop = self.slice.stop
-        step = self.slice.step or 1
-        input, = self.traces(ctx)
+        start = self.select.start or 0
+        stop = self.select.stop
+        step = self.select.step or 1
+        source, = self.traces(ctx)
 
         def impl(params, raw):
-            ins = input(params, raw)
+            ins = source(params, raw)
             return ins[start:stop:step, :]
         return impl
 
 
 class Frame:
     """Create pandas dataframes out of traces."""
+    data = None
 
     def __init__(self, trace, skip=1):
         self.trace = trace
         self.skip = skip
+        self.traces = []
 
-    def frame(self, traces=[], offset=0):
+    def frame(self, traces=(), offset=0):
         """Create a dataframe out of the given traces."""
         # TODO index with offset
 
@@ -505,6 +533,14 @@ class Frame:
         df = self.frame(self.traces)
         self.data[df.columns] = df
 
+    def __str__(self):
+        """Show class alongside the trace."""
+        return "{}({})".format(type(self).__name__, self.trace)
+
+    def __repr__(self):
+        """Show class alongside the trace."""
+        return "{}({!r})".format(type(self).__name__, self.trace)
+
 
 class Holotrace(Frame):
     """Publish traces to a `holoviews.Buffer`."""
@@ -513,22 +549,24 @@ class Holotrace(Frame):
         super().__init__(trace, skip=skip)
 
         import holoviews as hv
-        hv.__version__
+        assert hv
 
         self.batch = batch
         self.timeout = timeout
         self.traces = []
+        self.offset = 0
+        self.last = None
 
     @lazy
     def buffer(self):
         """Get the `holoviews.Buffer` where the data will be published to."""
-        import holoviews as hv
-        return hv.streams.Buffer(self.frame(),
-                                 index=False,
-                                 length=np.iinfo(int).max)
+        from holoviews import streams
+        return streams.Buffer(self.frame(),
+                              index=False,
+                              length=np.iinfo(int).max)
 
     def prepare(self):
-        """Clear the holoviews blist of tracesuffer and rr."""
+        """Clear and return the holoviews trace buffer."""
         self.buffer.clear()
         self.traces = []
         self.offset = 0
@@ -566,7 +604,7 @@ class Holotrace(Frame):
 
         if len(self.traces) >= self.batch:
             self.push()
-            
+
         elif (self.timeout is not None
                 and time.time() - self.last > self.timeout):
             self.push()
@@ -575,13 +613,26 @@ class Holotrace(Frame):
         """Ensure that all traces end up in the holoviews buffer."""
         self.push()
 
+    def dataset(self, data=None):
+        """Return the buffers data as a holoviews Dataset."""
+        import holoviews as hv
+        if data is None:
+            data = self.buffer.data
+        data = (data
+                .stack(dropna=False)
+                .swaplevel(-1, -2)
+                .to_frame(name='value'))
+        return hv.Dataset(data,
+                          kdims=list(data.index.names),
+                          vdims=['value'])
+
     def plot(self, obj, *args, **kws):
         """Plot the trace data using a holoview object."""
         import holoviews as hv
-
-        def plotting(data):
-            return (hv.Dataset(data,
-                               kdims=list(data.index.names),
-                               vdims=list(data.columns)).to(obj, *args, **kws)
-                    .overlay())
+        if isinstance(obj, type) and issubclass(obj, hv.element.chart.Chart):
+            def plotting(data):
+                return self.dataset(data).to(obj, *args, **kws).overlay()
+        else:
+            def plotting(data):
+                return obj(self.dataset(data), *args, **kws)
         return hv.DynamicMap(plotting, streams=[self.buffer])
