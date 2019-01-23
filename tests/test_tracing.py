@@ -7,7 +7,10 @@ from pandas.testing import assert_frame_equal
 class Generate(sim.Model):
     @sim.step
     def init(self):
-        init = self.params(init=float)
+        init, _ = self.params(init=float,
+                              complex={'a': [int]*5,
+                                       'b': [float]*5,
+                                       'c': [float]*5})
         speed = self.random(speed=float)
         grow, const, alt = self.state(grow=float, const=float, alt=float)
 
@@ -36,6 +39,9 @@ class Amounts(sim.Allocation):
     init = sim.Param("Initial Value", 0)
     speed = sim.Normal("speed", 0, .2, help="Distribution of speeds")
     radius = sim.Normal("Radius", 1, .2, help="Distribution of radius")
+    complex = sim.Param("Complex", {'a': [1, 2, 3],
+                                    'b': [0, 2, 1],
+                                    'c': [1, 4, 9]})
 
 
 def test_tracing(engine):
@@ -133,6 +139,13 @@ def test_tracing(engine):
 
     assert ps.shape == (21, 1)
     assert (ps == 6).all(None)
+
+    pr = sim.trace.Param(complex={'a': [int]*3, 'c': [float]*3})
+    with exec.trace(pr) as ps:
+        exec.run()
+
+    assert ps.shape == (3 * 21, 2)
+    assert list(ps.columns) == ['complex.a', 'complex.c']
 
 
 def test_invalids():

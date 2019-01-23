@@ -125,10 +125,9 @@ def test_resolving(engine):
 
     dmulti = exec.resolve_derives("dmulti(baz)",
                                   model.derives['dmulti(baz)'])
-    assert ([list(m)
-             for m in dmulti(params)] == [[a*b
-                                           for b in alloc.baz.value['b']]
-                                          for a in alloc.baz.value['a']])
+    assert ([list(m) for m in dmulti(params)] ==
+            [[a*b for b in alloc.baz.value['b']]
+             for a in alloc.baz.value['a']])
 
 
 def test_misc():
@@ -138,7 +137,7 @@ def test_misc():
     exec = sim.Execution(model, alloc)
 
     def foo():
-        pass
+        """noop."""
 
     with pytest.raises(AttributeError):
         exec.compile(foo)

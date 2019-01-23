@@ -7,6 +7,7 @@ import inspect
 
 import time
 
+from collections import namedtuple
 from .util import lazy
 
 
@@ -171,7 +172,7 @@ class Trace:
     def __str__(self):
         """Show content of the trace."""
         return "{}[{}]".format(type(self).__name__,
-                               ",".join(self.columns))
+                               ",".join(map(str, self.columns)))
 
     __repr__ = __str__
 
@@ -180,9 +181,13 @@ class State(Trace):
     """Trace some part of the state."""
 
     def __init__(self, **specs):
-        columns = sum([["{}.{}".format(n, i) for i, _ in enumerate(s)]
-                       if isinstance(s, list) else [n]
-                       for n, s in specs.items()], [])
+        columns = []
+        for name, spec in specs.items():
+            if isinstance(spec, list):
+                columns.extend(["{}.{}".format(name, i)
+                                for i in range(len(spec))])
+            else:
+                columns.append(name)
         super().__init__(columns=columns)
         self.specs = specs
 
@@ -200,18 +205,72 @@ class Param(Trace):
     """Bring some parameter into the trace algebra."""
 
     def __init__(self, **specs):
-        columns = sum([["{}.{}".format(n, i) for i, _ in enumerate(s)]
-                       if isinstance(s, list) else [n]
-                       for n, s in specs.items()], [])
+        columns = []
+        length = None
+
+        for name, spec in specs.items():
+            if isinstance(spec, dict):
+                for key, types in spec.items():
+                    if length and len(types) != length:
+                        msg = "Inconsistent trace length."
+                        raise ValueError(msg)
+                    length = len(types)
+                    columns.append("{}.{}".format(name, key))
+            else:
+                columns.append(name)
+                length = 1
         super().__init__(columns=columns)
+
         self.specs = specs
+        self.length = length
 
     def trace(self, ctx):
         """Return implementation that selects parameters."""
-        ps = ctx.params(True, **self.specs)
+        fns = []
+        for param in ctx.params(True, **self.specs):
+            prs = param if isinstance(param, tuple) else [param]
+            for pr in prs:
+                fns.append(pr)
+        fns = tuple(fns)
 
-        def impl(params, _):
-            return [p(params) for p in ps]
+        if self.length == 1:
+            def base(fn):
+                @ctx.resolve_function
+                def impl(params, _):
+                    return np.array([fn(params)])
+                return impl
+        else:
+            def base(fn):
+                @ctx.resolve_function
+                def impl(params, _):
+                    raw = list(fn(params))
+                    return np.array(raw).reshape(1, len(raw))
+                return impl
+
+
+        def reduce(fn, *fns):
+            if not fns:
+                return base(fn)
+            else:
+                first = base(fn)
+                rest = reduce(*fns)
+
+                @ctx.resolve_function
+                def impl(params, _):
+                    rs = rest(params, _)
+                    return np.concatenate((first(params, _), rs))
+
+                return impl
+
+        red = reduce(*fns)
+
+        if self.length > 1:
+            def impl(params, state):
+                return red(params, state).T
+        else:
+            def impl(params, state):
+                return red(params, state)
+
         return impl
 
 
