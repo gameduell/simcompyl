@@ -67,6 +67,15 @@ def test_tracing(engine):
     assert_frame_equal(td.alt.unstack().diff().abs()[1:],
                        2 * td.const.unstack().abs()[1:])
 
+    with exec.trace(tr.take(6), skip=4) as td:
+        exec.run()
+
+    assert td.shape == (6 * 6, 3)
+    assert_frame_equal(td.grow.unstack().diff()[1:],
+                       td.const.unstack()[1:]*4)
+    assert_frame_equal(td.alt.unstack(),
+                       td.const.unstack())
+
     with exec.trace(tr.mean()) as td:
         exec.run()
     assert td.shape == (21, 3)
@@ -83,7 +92,7 @@ def test_tracing(engine):
     assert_frame_equal(td.grow.unstack().diff()[1:],
                        td.const.unstack()[1:])
 
-    mr = (2 * model.grow - model.alt).name('math')
+    mr = (2 * model.grow - model.alt).naming('math')
     with exec.trace(mr.take(6), tr.take(6)) as (md, td):
         exec.run()
     assert md.shape == (21 * 6, 1)
@@ -110,6 +119,15 @@ def test_tracing(engine):
         exec.run()
     assert fd.shape == (21 * 6, 3)
     assert (fd.alt > 0).all(None)
+
+
+    cr = tr[model.const >= model.alt]
+    with exec.trace(cr.mean()) as cd:
+        exec.run()
+
+    assert cd.shape == (21, 3)
+    assert (cd.const[1:] >= cd.alt[1:]).all(None)
+
 
     with exec.trace(fr.mean()) as fd:
         exec.run()
@@ -159,7 +177,7 @@ def test_invalids():
         sim.Trace(a=int, b=int) / sim.Trace(c=int, d=int)
 
     with pytest.raises(ValueError):
-        sim.Trace(a=int, b=int).name("a", "b", "c")
+        sim.Trace(a=int, b=int).naming("a", "b", "c")
 
     with pytest.raises(NotImplementedError):
         sim.Trace(a=int, b=int)[...]
@@ -229,3 +247,25 @@ def test_holoview():
         exec.run(n_steps=2)
     assert ht.buffer == bf
     assert len(bf.data) == 3 * 6
+
+    ht = tr.take(6).to(sim.trace.Holotrace, skip=4, batch=2)
+    with exec.trace(ht):
+        exec.run()
+
+    assert ht.data.shape == (6 * 6, 3)
+
+    ht = tr.take(6).to(sim.trace.Holotrace, skip=4, batch=100, timeout=10)
+    with exec.trace(ht):
+        exec.run()
+        assert ht.data.shape == (0, 3)
+
+    assert ht.data.shape == (6 * 6, 3)
+
+    ht = tr.take(6).to(sim.trace.Holotrace, skip=4, batch=100, timeout=.001)
+    with exec.trace(ht):
+        exec.run()
+        assert ht.data.shape[0] > 0
+
+    assert ht.data.shape == (6 * 6, 3)
+
+

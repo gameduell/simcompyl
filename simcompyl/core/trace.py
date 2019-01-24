@@ -59,13 +59,16 @@ class Trace:
             raise TypeError(msg)
         return super().__new__(cls)
 
-    def __init__(self, *sources, columns=None, index=None):
+    def __init__(self, *sources, columns=None, index=None, label=None):
         """Create transformation with an given source and output columns."""
         if sources:
             if columns is None:
                 columns = sources[0].columns
             if index is None:
                 index = sources[0].index
+            if label is None and sources[0].label != 'value':
+                label = sources[0].label
+        self.label = label or (columns[0] if len(columns) == 1 else 'value')
         self.sources = sources
         self.index = index
         self.columns = columns
@@ -88,11 +91,14 @@ class Trace:
             return source(params, raw)
         return impl
 
-    def name(self, *names):
+    def naming(self, *names):
         """Name the columns of the trace."""
         if len(names) != len(self.columns):
             raise ValueError("Supplied names should match length of columns.")
         return Trace(self, columns=names)
+
+    def values(self, label):
+        return Trace(self, label=label)
 
     def assign(self, **assings):
         """Assign new variables by evaluating passed functions on the source."""
@@ -364,7 +370,9 @@ class Filter(Trace):
 
         if len(self.predicate.columns) == 1:
             def impl(params, raw):
-                return source(params, raw)[predicate(params, raw)[:, 0]]
+                src = source(params, raw)
+                pred = predicate(params, raw).astype(np.bool_)
+                return src[pred[:, 0]]
 
         elif len(self.predicate.columns) == len(self.source.columns):
             def impl(params, raw):
@@ -552,7 +560,6 @@ class Frame:
     def __init__(self, trace, skip=1):
         self.trace = trace
         self.skip = skip
-        self.traces = []
 
     def frame(self, traces=(), offset=0):
         """Create a dataframe out of the given traces."""
@@ -561,12 +568,16 @@ class Frame:
         columns = pd.Index(self.trace.columns, name='variable')
 
         if self.trace.index is None:
-            srx = pd.RangeIndex(len(self.traces[0]) if self.traces else 1,
+            srx = pd.RangeIndex(len(traces[0]) if traces else 1,
                                 name='sample')
         else:
             srx = self.trace.index
 
-        trx = pd.RangeIndex(offset, (len(traces) or 1) + offset, name='trace')
+        trx = pd.RangeIndex(offset,
+                            offset + (len(traces) or 1) * self.skip,
+                            self.skip,
+                            name='trace')
+
         idx = pd.MultiIndex.from_product([trx, srx],
                                          names=(trx.name, srx.name))
 
@@ -581,16 +592,20 @@ class Frame:
         """Prepare the internals, called before running a new simulation."""
         self.traces = []
         self.data = self.frame().iloc[:0]
+        self.count = 0
         return self.data
 
     def publish(self, trace):
         """Handle the trace data called when it becomes available."""
-        self.traces.append(trace)
+        if (self.count % self.skip) == 0:
+            self.traces.append(trace)
+        self.count += 1
 
     def finalize(self):
         """Take care to finalize all the data given to the manager."""
         df = self.frame(self.traces)
         self.data[df.columns] = df
+        return df
 
     def __str__(self):
         """Show class alongside the trace."""
@@ -612,8 +627,6 @@ class Holotrace(Frame):
 
         self.batch = batch
         self.timeout = timeout
-        self.traces = []
-        self.offset = 0
         self.last = None
 
     @lazy
@@ -628,8 +641,9 @@ class Holotrace(Frame):
         """Clear and return the holoviews trace buffer."""
         self.buffer.clear()
         self.traces = []
-        self.offset = 0
+        self.count = 0
         self.last = time.time()
+        self.offset = 0
         return self.buffer
 
     @property
@@ -640,12 +654,7 @@ class Holotrace(Frame):
     def push(self):
         """Push remaining traces towards the holoviews buffer."""
         if self.traces:
-            df = self.frame(self.traces)
-            if isinstance(df.index, pd.MultiIndex):
-                df.index.set_levels(df.index.levels[0] + self.offset,
-                                    level=0, inplace=True)
-            else:
-                df.index += self.offset
+            df = self.frame(self.traces, offset=self.offset)
 
             self.offset += len(self.traces) * self.skip
             self.traces = []
@@ -659,7 +668,10 @@ class Holotrace(Frame):
 
         @param trace raw numpy trace data
         """
-        self.traces.append(trace)
+        if self.count % self.skip == 0:
+            self.traces.append(trace)
+
+        self.count += 1
 
         if len(self.traces) >= self.batch:
             self.push()
@@ -680,10 +692,10 @@ class Holotrace(Frame):
         data = (data
                 .stack(dropna=False)
                 .swaplevel(-1, -2)
-                .to_frame(name='value'))
+                .to_frame(name=self.trace.label))
         return hv.Dataset(data,
                           kdims=list(data.index.names),
-                          vdims=['value'])
+                          vdims=[self.trace.label])
 
     def plot(self, obj, *args, **kws):
         """Plot the trace data using a holoview object."""
