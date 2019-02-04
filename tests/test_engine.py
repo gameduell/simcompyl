@@ -2,6 +2,7 @@ import simcompyl as sim
 
 from collections import Counter
 import pytest
+import time
 
 
 class Foobar(sim.Model):
@@ -145,7 +146,29 @@ def test_misc():
 
 def test_numba():
     model = sim.Model()
+    model.state(nil=int)
     alloc = FooAlloc()
 
     exec = sim.Execution(model, alloc)
+
+    a = time.time()
     exec.run()
+    b = time.time()
+    exec.run()
+    c = time.time()
+    assert (b - a) > (c - b) * 5
+
+    tr = model.nil.mean()
+    a = time.time()
+    with exec.trace(tr) as fst:
+        exec.run()
+    b = time.time()
+    with exec.trace(tr) as snd:
+        exec.run()
+    c = time.time()
+
+    assert fst.shape == (5, 1)
+    assert snd.shape == (5, 1)
+
+    assert (b - a) > (c - b) * 5
+

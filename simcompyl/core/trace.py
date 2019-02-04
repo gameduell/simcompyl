@@ -40,6 +40,22 @@ def _defop(op, arity=None, reverse=False, reduce=False):
         return __applyop__
 
 
+def _freeze(*objs):
+    if len(objs) == 1:
+        obj, = objs
+
+        if isinstance(obj, Trace):
+            return obj.__freeze__()
+        elif isinstance(obj, dict):
+            return tuple((k, _freeze(obj[k])) for k in obj.keys())
+        elif isinstance(obj, (list, tuple, np.ndarray)):
+            return tuple(_freeze(val) for val in obj)
+        else:
+            return obj
+    else:
+        return _freeze(objs)
+
+
 class Trace:
     """Abstract base class for trace transformations.
 
@@ -72,6 +88,13 @@ class Trace:
         self.sources = sources
         self.index = index
         self.columns = columns
+
+    def __freeze__(self):
+        return _freeze(self.sources,
+                       self.columns,
+                       None if self.index is None else list(self.index),
+                       self.label)
+
 
     def to(self, target=None, *args, **kws):
         """Make an instance of the target class with this traces."""
@@ -197,6 +220,10 @@ class State(Trace):
         super().__init__(columns=columns)
         self.specs = specs
 
+    def __freeze__(self):
+        return super().__freeze__() + _freeze(self.specs)
+
+
     def trace(self, ctx):
         """Return implementation that selects columns on the state."""
         ixs = np.array([ix if isinstance(ix, list) else [ix]
@@ -229,6 +256,9 @@ class Param(Trace):
 
         self.specs = specs
         self.length = length
+
+    def __freeze__(self):
+        return super().__freeze__() + _freeze(self.specs,)
 
     def trace(self, ctx):
         """Return implementation that selects parameters."""
@@ -307,6 +337,9 @@ class Assign(Trace):
         super().__init__(source, columns=columns)
         self.assigns = assigns
         self.select = sel
+
+    def __freeze__(self):
+        return super().__freeze__() + _freeze(self.assigns,)
 
     def trace(self, ctx):
         """Add assignments to the trace."""
@@ -400,6 +433,9 @@ class BinaryOp(Trace):
         self.op = op
         self.reverse = reverse
 
+    def __freeze__(self):
+        return super().__freeze__() + _freeze(self.other, self.op)
+
     def trace(self, ctx):
         """Return implementation applying the binary op."""
         other = self.other
@@ -462,6 +498,9 @@ class Apply(Trace):
         self.method = method
         self.args = args
         self.reduce = reduce
+
+    def __freeze__(self):
+        return super().__freeze__() + _freeze(self.method, self.args)
 
     def trace(self, ctx):
         """Return implementation applying a method on each column."""
@@ -536,9 +575,20 @@ class Columns(Trace):
 class Slice(Trace):
     """Select a slice of the data."""
 
-    def __init__(self, source, select):
-        super().__init__(source)
+    def __init__(self, source, select, index=None):
+        if index is None:
+            if source.index:
+                index = source.index[select]
+            elif (select.stop or -1) >= 0:
+                index = pd.RangeIndex(select.start, select.stop, select.step,
+                                      name='sample')
+        super().__init__(source, index=index)
         self.select = select
+
+    def __freeze__(self):
+        return super().__freeze__() + _freeze(self.select.start,
+                                              self.select.stop,
+                                              self.select.step)
 
     def trace(self, ctx):
         """Return implementation selecting a slice."""
@@ -562,9 +612,7 @@ class Frame:
         self.skip = skip
 
     def frame(self, traces=(), offset=0):
-        """Create a dataframe out of the given traces."""
-        # TODO index with offset
-
+        """Create a Dataframe out of the given traces."""
         columns = pd.Index(self.trace.columns, name='variable')
 
         if self.trace.index is None:
@@ -671,14 +719,16 @@ class Holotrace(Frame):
         if self.count % self.skip == 0:
             self.traces.append(trace)
 
+        if self.count == 0 or len(self.traces) >= self.batch:
+            self.push()
+
+        if (self.traces and
+                self.timeout is not None and
+                time.time() - self.last > self.timeout):
+            self.push()
+
         self.count += 1
 
-        if len(self.traces) >= self.batch:
-            self.push()
-
-        elif (self.timeout is not None
-                and time.time() - self.last > self.timeout):
-            self.push()
 
     def finalize(self):
         """Ensure that all traces end up in the holoviews buffer."""
@@ -702,8 +752,12 @@ class Holotrace(Frame):
         import holoviews as hv
         if isinstance(obj, type) and issubclass(obj, hv.element.chart.Chart):
             def plotting(data):
+                if data.empty:
+                    data = self.frame()
                 return self.dataset(data).to(obj, *args, **kws).overlay()
         else:
             def plotting(data):
+                if data.empty:
+                    data = self.frame()
                 return obj(self.dataset(data), *args, **kws)
         return hv.DynamicMap(plotting, streams=[self.buffer])

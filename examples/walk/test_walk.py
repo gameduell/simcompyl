@@ -42,7 +42,7 @@ def test_tracing(engine):
     with exec.trace(tr, skip=6) as pos:
         exec.run()
 
-    assert len(pos) == (alloc.n_steps.value + 1) * 12
+    assert len(pos) == (alloc.n_steps.value // 6 + 1) * 12
     assert list(pos.columns) == ['x', 'y']
 
     qr = (model(dist=lambda x, y: np.sqrt(x ** 2 + y ** 2))

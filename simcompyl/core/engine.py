@@ -1,5 +1,5 @@
 """Engine actually executes the simulations code."""
-
+from functools import lru_cache
 import numba as nb
 import numpy as np
 import pandas as pd
@@ -18,13 +18,15 @@ class BasicExecution:
         self.model = model
         self.alloc = alloc
         self.traces = []
+        self.compiles = {}
 
     @contextmanager
     def trace(self, *traces, target=None, **options):
         """Activate given traces."""
-        traces = [tr.to(target, **options) if isinstance(tr, Trace) else tr
-                  for tr in traces]
-        self.traces.extend(traces)
+        for tr in traces:
+            if isinstance(tr, Trace):
+                tr = tr.to(target, **options)
+            self.traces.append(tr)
 
         try:
             yield (traces[0].prepare()
@@ -34,21 +36,23 @@ class BasicExecution:
         finally:
             for tr in traces:
                 tr.finalize()
-        self.traces = self.traces[:-len(traces)]
+            self.traces = self.traces[:-len(traces)]
 
-    # @lru_cache()
     def tracing(self, trace):
         """Cache of a trace method."""
+        if trace.__freeze__() in self.compiles:
+            return self.compiles[trace.__freeze__()]
+
         ctx = TraceContext(self)
 
         with self.resolving():
-            return self.compile(ctx.resolve_function(trace.trace(ctx)),
-                                vectorize=False)
+            cc = self.compile(ctx.resolve_function(trace.trace(ctx)),
+                              vectorize=False)
+        self.compiles[trace.__freeze__()] = cc
+        return cc
 
     def run(self, **allocs):
         """Execute the model."""
-        # TODO more doc
-
         if allocs:
             with self.alloc(**allocs):
                 return self.run()
