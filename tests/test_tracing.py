@@ -227,22 +227,17 @@ def test_holoview():
     hv.render(dm)  # trigger rendering, so dynamic map gets filled
 
     over, = dm
-    gc, cc, ac, = over
+    assert len(over) == 6 * 3
+    crv, *_ = over
 
     assert isinstance(dm, hv.DynamicMap)
     assert isinstance(over, hv.NdOverlay)
-    assert isinstance(gc, hv.Curve)
-    assert gc.kdims == [hv.Dimension('trace')]
-    assert gc.vdims == [hv.Dimension('value')]
-    assert isinstance(cc, hv.Curve)
-    assert cc.kdims == [hv.Dimension('trace')]
-    assert cc.vdims == [hv.Dimension('value')]
-    assert isinstance(ac, hv.Curve)
-    assert ac.kdims == [hv.Dimension('trace')]
-    assert ac.vdims == [hv.Dimension('value')]
+    assert isinstance(crv, hv.Curve)
+    assert crv.kdims == [hv.Dimension('trace')]
+    assert crv.vdims == [hv.Dimension('value')]
 
     bf = ht.buffer
-    assert len(bf.data) == 1
+    assert len(bf.data) == 6
     with exec.trace(ht):
         exec.run(n_steps=2)
     assert ht.buffer == bf
@@ -251,14 +246,14 @@ def test_holoview():
     ht = tr.take(6).to(sim.trace.Holotrace, skip=4, batch=2)
     with exec.trace(ht):
         exec.run()
-        assert ht.data.shape == (6 * 6, 3)
+        assert ht.data.shape == (5 * 6, 3)
 
     assert ht.data.shape == (6 * 6, 3)
 
     ht = tr.take(6).to(sim.trace.Holotrace, skip=4, batch=100, timeout=10)
     with exec.trace(ht):
         exec.run()
-        assert ht.data.shape == (0, 3)
+        assert ht.data.shape == (6, 3)
 
     assert ht.data.shape == (6 * 6, 3)
 

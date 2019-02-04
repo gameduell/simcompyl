@@ -23,10 +23,9 @@ class BasicExecution:
     @contextmanager
     def trace(self, *traces, target=None, **options):
         """Activate given traces."""
-        for tr in traces:
-            if isinstance(tr, Trace):
-                tr = tr.to(target, **options)
-            self.traces.append(tr)
+        traces = [tr.to(target, **options) if isinstance(tr, Trace) else tr
+                  for tr in traces]
+        self.traces.extend(traces)
 
         try:
             yield (traces[0].prepare()
