@@ -3,7 +3,6 @@ channels:
   - pyviz
   - bokeh
   - conda-forge
-  - intel
   - defaults
   - numba
 
