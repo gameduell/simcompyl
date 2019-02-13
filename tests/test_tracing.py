@@ -243,17 +243,17 @@ def test_holoview():
     assert ht.buffer == bf
     assert len(bf.data) == 3 * 6
 
-    ht = tr.take(6).to(sim.trace.Holotrace, skip=4, batch=2)
+    ht = tr.take(6).to(sim.trace.Holotrace, skip=4, batch=5)
     with exec.trace(ht):
         exec.run()
-        assert ht.data.shape == (5 * 6, 3)
+        assert ht.data.shape == (6 * 5, 3)
 
     assert ht.data.shape == (6 * 6, 3)
 
     ht = tr.take(6).to(sim.trace.Holotrace, skip=4, batch=100, timeout=10)
     with exec.trace(ht):
         exec.run()
-        assert ht.data.shape == (6, 3)
+        assert ht.data.shape == (0, 3)
 
     assert ht.data.shape == (6 * 6, 3)
 

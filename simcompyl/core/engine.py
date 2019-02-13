@@ -1,5 +1,4 @@
 """Engine actually executes the simulations code."""
-from functools import lru_cache
 import numba as nb
 import numpy as np
 import pandas as pd
@@ -207,7 +206,7 @@ class NumbaExecution(BasicExecution):
                  use_gufunc=True, parallel=True, fastmath=True):
         """Create a new numba engine instance.
 
-        /reParameters
+        Parameters
         ----------
         use_gufunc : bool
             execute vectorizing simulation methods with `numba.guvectorize`

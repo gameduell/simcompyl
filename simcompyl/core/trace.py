@@ -630,7 +630,7 @@ class Frame:
                                          names=(trx.name, srx.name))
 
         if not traces:
-            return pd.DataFrame(index=idx, columns=columns)
+            return pd.DataFrame(0, index=idx, columns=columns)
 
         return pd.DataFrame(np.concatenate(traces),
                             index=idx,
@@ -719,7 +719,7 @@ class Holotrace(Frame):
         if self.count % self.skip == 0:
             self.traces.append(trace)
 
-        if self.count == 0 or len(self.traces) >= self.batch:
+        if len(self.traces) >= self.batch:
             self.push()
 
         if (self.traces and
