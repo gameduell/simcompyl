@@ -6,8 +6,8 @@ from simcompyl.core.model import Step, StepDescriptor, Specs, SpecsCollection
 
 class Base:
     def __init__(self):
-        self.__specs__ = SpecsCollection(steps=Specs(),
-                                         other=Specs())
+        self.__specs__ = SpecsCollection(steps=Specs('steps'),
+                                         other=Specs('other'))
         self._steps, self.other = self.__specs__.values()
 
 

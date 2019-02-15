@@ -9,6 +9,10 @@ from types import FunctionType
 from .util import Resolvable
 from .trace import Trace
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 __all__ = ['Model', 'step']
 
 
@@ -32,9 +36,10 @@ class Specs(Resolvable):
 
     """
 
-    def __init__(self, collect=None):
+    def __init__(self, name, collect=None):
         """Create a new specification aspect of the simulation."""
         self.specs = {}
+        self._name = name
         self._collect = collect
         self._resolve = None
         self._activated = [{}]
@@ -65,6 +70,7 @@ class Specs(Resolvable):
 
     def unresolved(self, name, spec):
         """Return the spec when no resolver is bound."""
+        logger.debug("spec default resolution for {} of {}", self._name, name)
         return spec
 
     @contextmanager
@@ -102,6 +108,8 @@ class Specs(Resolvable):
             previous defined spec if available.
 
         """
+        logger.debug("spec validation for %s of %s = %s against %s",
+                     self._name, name, spec, prev)
         if spec is ...:
             if prev is None:
                 msg = "Invalid specs ellipsis for {!r}, no previous definition."
@@ -204,7 +212,7 @@ class Specs(Resolvable):
 class SpecsCollection(dict):
     """Specialized dict putting together multiple specs.
 
-    This class adds the ability to manage all contained specs togheter.
+    This class adds the ability to manage all contained specs together.
     """
 
     def initialize(self, obj):
@@ -231,6 +239,7 @@ class SpecsCollection(dict):
                 collection.
 
         """
+        logger.debug("specs activation of %s", obj)
         with ExitStack() as stack:
             for name, specs in self.items():
                 stack.enter_context(specs.activate(getattr(obj, name)))
@@ -306,8 +315,8 @@ class StepDescriptor:
 class Step:
     """The step instance returned when accessing a models step.
 
-    A step will take care of activating itself before invoking the underlaying
-    method, so all dependencies will be registered insde the step. Moreover,
+    A step will take care of activating itself before invoking the underlying
+    method, so all dependencies will be registered inside the step. Moreover,
     it will register the resulting implementation inside the `steps` Specs
     of the model and returns the accessor for the specs.
     """
@@ -362,12 +371,12 @@ class Model:
 
     def __init__(self):
         """Create a new model instance initializing its specs."""
-        allocs = Specs()
-        self.__specs__ = SpecsCollection(steps=Specs(),
-                                         state=Specs(),
-                                         params=Specs(collect=allocs),
-                                         random=Specs(),
-                                         derives=Specs(),
+        allocs = Specs('allocs')
+        self.__specs__ = SpecsCollection(steps=Specs('steps'),
+                                         state=Specs('state'),
+                                         params=Specs('params', collect=allocs),
+                                         random=Specs('random'),
+                                         derives=Specs('derives'),
                                          allocs=allocs)
         (self.steps, self.state,
          self.params, self.random,
@@ -418,6 +427,7 @@ class Model:
     @contextmanager
     def resolving(self, *, steps, state, params, random, derives):
         """Use the supplied function for resolving allocation in `Specs`."""
+        logger.debug("resolving with %s, ...", steps)
         with self.steps.resolving(steps), \
                 self.state.resolving(state), \
                 self.params.resolving(params), \
@@ -472,13 +482,15 @@ class Model:
         """
         def annotate(fn):
             name = '{}({})'.format(fn.__name__, ','.join(deps))
+
+            logger.debug("derive on %s using %s", name, deps)
             self.allocs(**deps)
             return self.derives(**{name: (fn, deps)})
         return annotate
 
     @step
     def init(self):
-        """Return an implemenetation initializing the state of each individual.
+        """Return an implementation initializing the state of each individual.
 
         Returns
         -------

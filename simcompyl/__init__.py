@@ -7,6 +7,9 @@ being able to execute a simulation efficiently, executing hundreds of steps
 of thousands of individuals a second.
 """
 import warnings
+import logging
+
+logging.basicConfig(level=logging.INFO)
 
 ignores = ["numpy.dtype size changed",
            "numpy.ufunc size changed",

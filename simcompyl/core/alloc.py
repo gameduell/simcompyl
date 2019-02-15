@@ -13,6 +13,7 @@ scope of the model, as
 import numpy as np
 import weakref
 import contextlib
+import logging
 
 from itertools import chain
 from types import FunctionType
@@ -21,6 +22,8 @@ from inspect import signature
 __all__ = ['Allocation', 'Param', 'Distribution',
            'Uniform', 'Bernoulli',
            'Continuous', 'Normal', 'Exponential']
+
+logger = logging.getLogger(__name__)
 
 
 class Param:
@@ -151,12 +154,15 @@ class Alloc:
 
     def update(self, value):
         """Update the current value notifying subscribers about the change."""
+        logger.debug("param update of %s to %s", self.name, value)
+
         # TODO validation of values
         prev, self.value = self.value, value
 
         if prev != value:
             for s in self.subscribers:
                 # TODO logging
+                logger.debug("... notifying %s", s)
                 s(self.name, prev, value)
 
     def reset(self):
@@ -168,6 +174,8 @@ class Alloc:
         if not isinstance(callback, FunctionType):
             msg = "Callback object should be callable, not a {}."
             raise TypeError(msg.format(type(callback).__name__))
+
+        logger.info("param subscription on %s to %s", self.name, callback)
 
         try:
             signature(callback).bind('', None, None)
@@ -181,8 +189,11 @@ class Alloc:
         """Remove a `callback(name, old, new)` from being notified."""
         try:
             idx = self.subscribers.index(callback)
+            logger.info("param unsubscription on %s of %s", self.name, callback)
             return self.subscribers.pop(idx)
         except ValueError:
+            logger.warning("param unsubscription on %s not possible for %s",
+                           self.name, callback)
             return None
 
     def __str__(self):
@@ -212,11 +223,13 @@ class Allocation:
         """Temporarily set some parameter values inside a context."""
         vals = {}
         try:
+            logger.info("creating context allocation %s", kws)
             for name, value in kws.items():
                 vals[name] = getattr(self, name).value
                 setattr(self, name, value)
             yield self
         finally:
+            logger.info("restoring context allocation %s", vals)
             for name, value in vals.items():
                 setattr(self, name, value)
 
@@ -297,6 +310,7 @@ class CombinedAllocation(Allocation):
     """A combination of other allocation objects."""
 
     def __init__(self, *bases):
+        logger.info("combining allocations %s", bases)
         super().__init__()
 
         conflicts = set()
@@ -331,6 +345,7 @@ class CombinedAllocation(Allocation):
         if not name.startswith('_'):
             for alloc in self._bases:
                 if hasattr(alloc, name):
+                    logger.debug("setting combined %s on %s", name, alloc)
                     return setattr(alloc, name, value)
 
         super().__setattr__(name, value)
@@ -338,6 +353,7 @@ class CombinedAllocation(Allocation):
     def __delattr__(self, name):
         for alloc in self._bases:
             if hasattr(alloc, name):
+                logger.debug("resetting combined %s on %s", name, alloc)
                 return delattr(alloc, name)
 
         super().__delattr__(name)

@@ -7,7 +7,7 @@ from simcompyl.core.model import Specs
 def test_activation():
     a = {}
     b = {}
-    specs = Specs()
+    specs = Specs('specs')
 
     with specs.activate(a):
         specs(a1=1)
@@ -27,7 +27,7 @@ def test_activation():
 
 
 def test_resolve():
-    specs = Specs()
+    specs = Specs('specs')
 
     cnt = Counter()
 
@@ -57,7 +57,7 @@ def test_resolve():
 
 
 def test_validation():
-    specs = Specs()
+    specs = Specs('specs')
 
     specs(i=int, s=str, fs=[float] * 4)
     assert specs['i'] == int
@@ -127,7 +127,7 @@ def test_validation():
 
 
 def test_validate_methods():
-    specs = Specs()
+    specs = Specs('specs')
 
     class Foo:
         def foo():

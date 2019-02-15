@@ -2,6 +2,9 @@
 import functools
 import weakref
 from contextlib import contextmanager
+import logging
+
+logger = logging.getLogger(__name__)
 
 __all__ = ['lazy', 'Resolvable']
 
@@ -82,6 +85,7 @@ class Resolvable:
 
     @contextmanager
     def resolving(self, resolver):
+        logger.debug("resolving for %s with %s", self, resolver)
         self._resolver = resolver
         try:
             yield

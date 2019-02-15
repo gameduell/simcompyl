@@ -6,9 +6,12 @@ import operator
 import inspect
 
 import time
+import logging
 
 from collections import namedtuple
 from .util import lazy
+
+logger = logging.getLogger(__name__)
 
 
 def _defop(op, arity=None, reverse=False, reduce=False):
@@ -66,13 +69,16 @@ class Trace:
         """Create a new trace."""
         if cls == Trace and not args:
             if all(isinstance(v, (type, list)) for v in kws.values()):
+                logger.debug("trace creates as State for %s", kws)
                 return State(**kws)
 
             if all(hasattr(v, '__call__') for v in kws.values()):
+                logger.debug("trace creates as Assign for %s", kws)
                 return Assign(**kws)
 
             msg = "Expecting a state spec or assignments as keywords."
             raise TypeError(msg)
+
         return super().__new__(cls)
 
     def __init__(self, *sources, columns=None, index=None, label=None):
@@ -84,7 +90,11 @@ class Trace:
                 index = sources[0].index
             if label is None and sources[0].label != 'value':
                 label = sources[0].label
-        self.label = label or (columns[0] if len(columns) == 1 else 'value')
+
+        label = label or (columns[0] if len(columns) == 1 else 'value')
+        logger.debug("trace initialized tracing %s %s from %s",
+                     columns, label, sources)
+        self.label = label
         self.sources = sources
         self.index = index
         self.columns = columns
@@ -722,9 +732,9 @@ class Holotrace(Frame):
         if len(self.traces) >= self.batch:
             self.push()
 
-        if (self.traces and
-                self.timeout is not None and
-                time.time() - self.last > self.timeout):
+        elif (self.timeout is not None
+                and self.traces
+                and time.time() - self.last > self.timeout):
             self.push()
 
         self.count += 1
