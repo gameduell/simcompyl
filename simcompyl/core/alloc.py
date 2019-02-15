@@ -310,7 +310,7 @@ class CombinedAllocation(Allocation):
     """A combination of other allocation objects."""
 
     def __init__(self, *bases):
-        logger.info("combining allocations %s", bases)
+        logger.info("combining allocations %s", ' + '.join(map(str, bases)))
         super().__init__()
 
         conflicts = set()
