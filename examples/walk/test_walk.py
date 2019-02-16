@@ -20,7 +20,7 @@ def test_execute(engine):
 
     out = exec.run(initial_energy=10)
 
-    limit = alloc.n_samples.value / 2
+    limit = alloc.n_samples.value / 4
 
     assert set(out.columns) == {'x', 'y', 'energy'}
     assert len(out.query('x**2 + y**2 < 10**2')) > limit
