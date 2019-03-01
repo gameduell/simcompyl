@@ -1,6 +1,6 @@
 import pytest
 
-import simulhave as sim
+import simcompyl as sim
 
 
 @pytest.fixture(params=['BasicExecution',

@@ -1,4 +1,4 @@
-import simulhave as sim
+import simcompyl as sim
 
 from collections import Counter
 import pytest

@@ -1,4 +1,4 @@
-from simulhave.core.util import lazy, LazyDescriptor, Resolvable, Unresolved
+from simcompyl.core.util import lazy, LazyDescriptor, Resolvable, Unresolved
 
 import pytest
 

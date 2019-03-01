@@ -1,6 +1,6 @@
-import simulhave as sim
+import simcompyl as sim
 
-from simulhave.core.model import Step
+from simcompyl.core.model import Step
 from types import FunctionType
 
 import pytest

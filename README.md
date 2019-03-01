@@ -1,16 +1,21 @@
 
-Simhaviour - Simulated Behaviour
-===============================
+# SimComPyl - Simulations, composable, compiled, pure python
 
-simhaviour is a framework to write simulations for the behaviour of large
-populations rapidly, focusing on speed of development as well as execution.
-This is archieved by combining pythons cooperative inheritance for composability
-with a numba optimized execution of the simualted environment. 
+|Build Status| |Coverage|
+
+
+SimComPyl is a framework to write discrete time simulation. It focoses on ease
+of development as well as execution speed. This is archived by compiling pure
+composable python classes with numba:
 
   Thousends of decisions of millions of individuals 
   can be simulated within seconds.
 
-The framework can be used to run time-descrete simulation, e.g. you could use
-it to get more insights and predictions on the behaviour of sea-life or your
-customers.
+The framework can be used to run any time-descrete simulation, e.g. you could use
+it to get more insights and predictions on the behaviour of sea-life, you mesh network
+or your customers.
 
+.. |Build Status| image:: https://travis-ci.org/gameduell/simcompyl.svg?branch=master
+   :target: https://travis-ci.org/gameduell/simcompyl
+.. |Coverage| image:: https://coveralls.io/repos/github/gameduell/simcompyl/badge.svg?branch=master 
+   :target: https://coveralls.io/github/gameduell/simcompyl?branch=master

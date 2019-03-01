@@ -1,4 +1,4 @@
-import simulhave as sim
+import simcompyl as sim
 
 import holoviews as hv
 import numpy as np

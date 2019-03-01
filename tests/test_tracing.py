@@ -1,4 +1,4 @@
-import simulhave as sim
+import simcompyl as sim
 
 import pytest
 from pandas.testing import assert_frame_equal

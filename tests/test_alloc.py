@@ -1,5 +1,5 @@
-import simulhave as sim
-from simulhave.core.alloc import Param, Alloc
+import simcompyl as sim
+from simcompyl.core.alloc import Param, Alloc
 
 import pytest
 from collections import Counter

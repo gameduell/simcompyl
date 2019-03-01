@@ -1,6 +1,6 @@
 """Small example showing the features of the simulation framework."""
 
-import simulhave as sim
+import simcompyl as sim
 import numpy as np
 
 
