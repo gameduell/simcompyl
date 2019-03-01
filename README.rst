@@ -1,10 +1,11 @@
 
-# SimComPyl - Simulations, composable, compiled, pure python
+SimComPyl - composable, compiled and pure python
+------------------------------------------------
 
 |Build Status| |Coverage|
 
 
-SimComPyl is a framework to write discrete time simulation. It focoses on ease
+SimComPyl is a framework to write discrete time simulation. It focuses on ease
 of development as well as execution speed. This is archived by compiling pure
 composable python classes with numba:
 
@@ -12,7 +13,7 @@ composable python classes with numba:
   can be simulated within seconds.
 
 The framework can be used to run any time-descrete simulation, e.g. you could use
-it to get more insights and predictions on the behaviour of sea-life, you mesh network
+it to get more insights and predictions on the behaviour of sea-life, a mesh network
 or your customers.
 
 .. |Build Status| image:: https://travis-ci.org/gameduell/simcompyl.svg?branch=master

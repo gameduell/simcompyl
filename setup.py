@@ -8,7 +8,7 @@ setup(
     # metadata for upload to PyPI
     author = "wabu",
     author_email = "wabu@fooserv.net",
-    long_description=open('README.md').read(),
+    long_description=open('README.rst').read(),
     install_requires=list(open('requirements.txt').read().strip().split('\n')),
     setup_requires=["pytest-runner"],
     tests_require=['pytest'],
