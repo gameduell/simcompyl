@@ -14,8 +14,8 @@ composable python classes with numba:
   can be simulated within seconds.
 
 The framework can be used to run any time-descrete simulation, e.g. you could use
-it to get more insights and predictions on the behaviour of sea-life, a mesh network
-or your customers.
+it to get more insights on the interactions and behaviours taking place in sea-life, 
+a mesh network or on your website.
 
 
 Feature Overview
