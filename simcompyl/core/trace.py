@@ -419,7 +419,7 @@ class Filter(Trace):
 
         elif len(self.predicate.columns) == len(self.source.columns):
             def impl(params, raw):
-                return source(params, raw)[predicate(params, raw)]
+                return source(params, raw)[predicate(params, raw) != 0]
 
         else:
             raise ValueError("Sizes of predicate not match source.")
