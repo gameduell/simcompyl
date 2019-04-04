@@ -9,6 +9,7 @@ import time
 import logging
 
 from collections import namedtuple
+from itertools import product, chain
 from .util import lazy
 
 logger = logging.getLogger(__name__)
@@ -121,7 +122,8 @@ class Trace:
         source, = self.traces(ctx)
 
         def impl(params, raw):
-            return source(params, raw)
+            idx, values = source(params, raw)
+            return idx, values
         return impl
 
     def naming(self, *names):
@@ -240,7 +242,7 @@ class State(Trace):
                         for ix in ctx.state(True, **self.specs)]).ravel()
 
         def impl(_, raw):
-            return raw[:, ixs]
+            return np.arange(len(raw)), raw[:, ixs]
         return impl
 
 
@@ -278,19 +280,20 @@ class Param(Trace):
             for pr in prs:
                 fns.append(pr)
         fns = tuple(fns)
+        l = self.length
 
         if self.length == 1:
             def base(fn):
                 @ctx.resolve_function
                 def impl(params, _):
-                    return np.array([fn(params)])
+                    return np.arange(l), np.array([fn(params)])
                 return impl
         else:
             def base(fn):
                 @ctx.resolve_function
                 def impl(params, _):
                     raw = list(fn(params))
-                    return np.array(raw).reshape(1, len(raw))
+                    return np.arange(l), np.array(raw).reshape(1, len(raw))
                 return impl
 
 
@@ -303,8 +306,9 @@ class Param(Trace):
 
                 @ctx.resolve_function
                 def impl(params, _):
-                    rs = rest(params, _)
-                    return np.concatenate((first(params, _), rs))
+                    idx, hd = first(params, _)
+                    _, rs = rest(params, _)
+                    return idx, np.concatenate((hd, rs))
 
                 return impl
 
@@ -312,10 +316,12 @@ class Param(Trace):
 
         if self.length > 1:
             def impl(params, state):
-                return red(params, state).T
+                idx, res = red(params, state)
+                return idx, res.T
         else:
             def impl(params, state):
-                return red(params, state)
+                idx, res = red(params, state)
+                return idx, res
 
         return impl
 
@@ -368,12 +374,12 @@ class Assign(Trace):
 
             @ctx.resolve_function
             def impl(pr, raw):
-                ins = src(pr, raw)
+                idx, ins = src(pr, raw)
 
                 new = np.empty((len(ins), 1))
                 new[:, 0] = call(ins)
                 # XXX Perhaps we should do allocation to avoid concat rep.
-                return np.concatenate((ins, new), axis=1)
+                return idx, np.concatenate((ins, new), axis=1)
             return impl
 
         source, = self.traces(ctx)
@@ -385,8 +391,8 @@ class Assign(Trace):
         sel = self.select
 
         def select(pr, raw):
-            ins = source(pr, raw)
-            return ins[:, sel:]
+            idx, ins = source(pr, raw)
+            return idx, ins[:, sel:]
 
         return select
 
@@ -413,13 +419,17 @@ class Filter(Trace):
 
         if len(self.predicate.columns) == 1:
             def impl(params, raw):
-                src = source(params, raw)
-                pred = predicate(params, raw).astype(np.bool_)
-                return src[pred[:, 0]]
+                idx, src = source(params, raw)
+                _, pred = predicate(params, raw)
+                pred = pred.astype(np.bool_)
+                return idx[pred[:, 0]], src[pred[:, 0]]
 
         elif len(self.predicate.columns) == len(self.source.columns):
             def impl(params, raw):
-                return source(params, raw)[predicate(params, raw) != 0]
+                idx, src = source(params, raw) 
+                _, pred =  predicate(params, raw)
+                pred = pred.astype(np.bool_)
+                return idx[pred], src[pred]
 
         else:
             raise ValueError("Sizes of predicate not match source.")
@@ -469,31 +479,33 @@ class BinaryOp(Trace):
             source, = self.traces(ctx)
 
             def impl(params, raw):
-                ins = source(params, raw)
+                idx, ins = source(params, raw)
                 m, n = ins.shape
                 result = np.empty((m, n), dtype=dtype)
 
                 for i in range(n):
                     result[:, i] = apply(ins[:, i], other[i])
-                return result
+                return idx, result
 
         elif isinstance(other, Trace):
             fst, snd = self.traces(ctx)
 
             def impl(params, raw):
-                a, b = fst(params, raw), snd(params, raw)
+                idx, a = fst(params, raw)
+                _, b = snd(params, raw)
                 m, n = a.shape
 
                 result = np.empty((m, n))
                 for i in range(n):
                     result[:, i] = apply(a[:, i], b[:, i])
-                return result
+                return idx, result
 
         else:
             source, = self.traces(ctx)
 
             def impl(params, raw):
-                return apply(source(params, raw), other)
+                idx, src = source(params, raw)
+                return idx, apply(src, other)
 
         return impl
 
@@ -519,15 +531,17 @@ class Apply(Trace):
         source, = self.traces(ctx)
 
         def impl(params, raw):
-            ins = source(params, raw)
+            idx, ins = source(params, raw)
             m, n = ins.shape
             if reduce:
+                # TODO really just use a range
+                idx = np.arange(reduce)
                 m = reduce
 
             result = np.empty((m, n))
             for i in range(n):
                 result[:, i] = apply(ins[:, i])
-            return result
+            return idx, result
         return impl
 
 
@@ -578,7 +592,8 @@ class Columns(Trace):
         source, = self.traces(ctx)
 
         def impl(params, raw):
-            return source(params, raw)[:, ixs]
+            idx, src = source(params, raw)
+            return idx, src[:, ixs]
         return impl
 
 
@@ -608,8 +623,8 @@ class Slice(Trace):
         source, = self.traces(ctx)
 
         def impl(params, raw):
-            ins = source(params, raw)
-            return ins[start:stop:step, :]
+            idx, ins = source(params, raw)
+            return idx[start:stop:step], ins[start:stop:step, :]
         return impl
 
 
@@ -621,7 +636,7 @@ class Frame:
         self.trace = trace
         self.skip = skip
 
-    def frame(self, traces=(), offset=0):
+    def frame(self, idxs=(), traces=(), offset=0):
         """Create a Dataframe out of the given traces."""
         columns = pd.Index(self.trace.columns, name='variable')
 
@@ -635,33 +650,46 @@ class Frame:
                             offset + (len(traces) or 1) * self.skip,
                             self.skip,
                             name='trace')
+        if self.trace.index is not None:
+            idxs = [self.trace.index for _ in idxs or [0]]
+        elif not idxs:
+            idxs = [[0]]
 
-        idx = pd.MultiIndex.from_product([trx, srx],
+        idx =  pd.MultiIndex.from_tuples(chain(*(product([t], idx)
+                                                 for t, idx in zip(trx, idxs))),
                                          names=(trx.name, srx.name))
+        if traces:
+            df = pd.DataFrame(np.concatenate(traces),
+                              index=idx,
+                              columns=columns)
+        else:
+            df = pd.DataFrame(0, index=idx, columns=columns)
+            
+        logger.info("%s created frame for %d traces %s", 
+                    self, len(traces), df.shape)
+            
+        return df
+            
 
-        if not traces:
-            return pd.DataFrame(0, index=idx, columns=columns)
-
-        return pd.DataFrame(np.concatenate(traces),
-                            index=idx,
-                            columns=columns)
 
     def prepare(self):
         """Prepare the internals, called before running a new simulation."""
         self.traces = []
+        self.idxs = []
         self.data = self.frame().iloc[:0]
         self.count = 0
         return self.data
 
-    def publish(self, trace):
+    def publish(self, idx, trace):
         """Handle the trace data called when it becomes available."""
         if (self.count % self.skip) == 0:
             self.traces.append(trace)
+            self.idxs.append(idx)
         self.count += 1
 
     def finalize(self):
         """Take care to finalize all the data given to the manager."""
-        df = self.frame(self.traces)
+        df = self.frame(self.idxs, self.traces)
         self.data[df.columns] = df
         return df
 
@@ -699,6 +727,7 @@ class Holotrace(Frame):
         """Clear and return the holoviews trace buffer."""
         self.buffer.clear()
         self.traces = []
+        self.idxs = []
         self.count = 0
         self.last = time.time()
         self.offset = 0
@@ -711,8 +740,9 @@ class Holotrace(Frame):
 
     def push(self):
         """Push remaining traces towards the holoviews buffer."""
+        logger.info("%s pushes %d traces.", self, len(self.traces))
         if self.traces:
-            df = self.frame(self.traces, offset=self.offset)
+            df = self.frame(self.idxs, self.traces, offset=self.offset)
 
             self.offset += len(self.traces) * self.skip
             self.traces = []
@@ -720,7 +750,7 @@ class Holotrace(Frame):
             self.buffer.send(df)
             self.last = time.time()
 
-    def publish(self, trace):
+    def publish(self, idx, trace):
         """
         Publish traced data.
 
@@ -728,6 +758,7 @@ class Holotrace(Frame):
         """
         if self.count % self.skip == 0:
             self.traces.append(trace)
+            self.idxs.append(trace)
 
         if len(self.traces) >= self.batch:
             self.push()

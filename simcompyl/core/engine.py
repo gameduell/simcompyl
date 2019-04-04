@@ -79,7 +79,7 @@ class BasicExecution:
         if trs:
             def trace(pr, st):
                 for pub, tr in trs:
-                    pub(tr(pr, st))
+                    pub(*tr(pr, st))
         else:
             def trace(_, __):
                 pass

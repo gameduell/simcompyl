@@ -246,6 +246,8 @@ def test_holoview():
     ht = tr.take(6).to(sim.trace.Holotrace, skip=4, batch=5)
     with exec.trace(ht):
         exec.run()
+        print(ht.traces)
+        print(ht.data)
         assert ht.data.shape == (6 * 5, 3)
 
     assert ht.data.shape == (6 * 6, 3)
