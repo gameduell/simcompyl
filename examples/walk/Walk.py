@@ -52,13 +52,13 @@ alloc = walk.BasicDistance() + walk.Simulation()
 
 # As the structure of the model is defined with the `step` annotation and resolving is done before the actual call inside the implementation, the model can be inspected without execution:
 
-# In[ ]:
+# In[5]:
 
 
 model.graph(rankdir='TD')
 
 
-# In[ ]:
+# In[6]:
 
 
 alloc
@@ -69,25 +69,25 @@ alloc
 
 # To run the definitions inside the model, we create an `Execution` object, that will create optmized code for fast execution. The first execution therefore will take more time, but further executions, even when chaning parameters, will be fast.
 
-# In[ ]:
+# In[7]:
 
 
 exec = sim.Execution(model, alloc)
 
 
-# In[ ]:
+# In[8]:
 
 
 get_ipython().run_line_magic('time', 'out = exec.run()')
 
 
-# In[ ]:
+# In[9]:
 
 
 get_ipython().run_line_magic('time', 'out = exec.run(initial_energy=2000);')
 
 
-# In[ ]:
+# In[10]:
 
 
 out.head()
@@ -95,7 +95,7 @@ out.head()
 
 # This way, one can execute the model with a big sample size in a short amount of time:
 
-# In[ ]:
+# In[11]:
 
 
 get_ipython().run_line_magic('time', 'out = exec.run(n_steps=500, n_samples=1_000_000)')
@@ -109,14 +109,14 @@ get_ipython().run_line_magic('time', 'out = exec.run(n_steps=500, n_samples=1_00
 # 
 # Tracing can be done into a simple pandas dataframe, but also into dynamic datastructures, like `holoviews.stream.Buffer` objects, updating plots during simulation:
 
-# In[ ]:
+# In[12]:
 
 
 import holoviews as hv
 hv.extension('bokeh')
 
 
-# In[ ]:
+# In[13]:
 
 
 import numpy as np
@@ -125,13 +125,13 @@ dist = (model(dist=lambda x, y: np.sqrt(x*x + y*y))
        .to(sim.trace.Holotrace, batch=500, skip=10, timeout=.2))
 
 
-# In[ ]:
+# In[14]:
 
 
 dist.plot(hv.Curve).opts(hv.opts.NdOverlay(width=600, height=300, legend_limit=4))
 
 
-# In[ ]:
+# In[15]:
 
 
 get_ipython().run_cell_magic('time', '', 'with exec.trace(dist):\n    exec.run(n_steps=10_000)')
@@ -139,13 +139,13 @@ get_ipython().run_cell_magic('time', '', 'with exec.trace(dist):\n    exec.run(n
 
 # Here's a more complex example, traceing the complete path of 20 individuals, that gets shaded before pushing it to the browser, so the browser does not have to render all the path segments:
 
-# In[ ]:
+# In[16]:
 
 
 pos = model['x', 'y'].take(20).to(sim.trace.Holotrace, batch=100, timeout=0.02)
 
 
-# In[ ]:
+# In[17]:
 
 
 def show(ds):
@@ -164,7 +164,7 @@ def show(ds):
 out = pos.plot(show).opts(width=400, height=400)
 
 
-# In[ ]:
+# In[18]:
 
 
 from holoviews.operation.datashader import datashade, spread
@@ -176,7 +176,7 @@ spread(datashade(out,
        px=1, how='saturate').opts(width=400, height=400)
 
 
-# In[ ]:
+# In[19]:
 
 
 get_ipython().run_cell_magic('time', '', 'with exec.trace(pos):\n    exec.run(n_steps=500)')

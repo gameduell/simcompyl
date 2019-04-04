@@ -1,4 +1,4 @@
-name: simulhave-dev
+name: sim-dev
 channels:
   - pyviz/label/dev
   - bokeh/label/dev
