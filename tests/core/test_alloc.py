@@ -8,7 +8,7 @@ from collections import Counter
 def test_alloc():
     class Foo(sim.Allocation):
         s = sim.Param("string", 'a string')
-        n = sim.Param("number", 42, help="A natural number", options=(1, None))
+        n = sim.Param("number", 42, descr="A natural number", options=(1, None))
 
     class Bar(sim.Allocation):
         s = sim.Param("baz", 'other string', options=['a', 'b', 'c'])
@@ -157,7 +157,7 @@ def test_arity():
 def test_combined():
     class Foo(sim.Allocation):
         s = sim.Param("string", 'a string')
-        n = sim.Param("number", 42, help="A natural number", options=(1, None))
+        n = sim.Param("number", 42, descr="A natural number", options=(1, None))
 
     class Bar(sim.Allocation):
         bar = sim.Param("bar", 'other string', options=['a', 'b', 'c'])

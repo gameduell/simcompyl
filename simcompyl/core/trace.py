@@ -1,18 +1,17 @@
 """A trace defines how to keep track of statistics during the simulation."""
-
-import pandas as pd
-import numpy as np
 import operator
 import inspect
 
 import time
 import logging
-
-from collections import namedtuple
 from itertools import product, chain
-from .util import lazy
 
-logger = logging.getLogger(__name__)
+import pandas as pd
+import numpy as np
+
+LOG = logging.getLogger(__name__)
+
+__all__ = ['Trace', 'Frame', 'Holotrace']
 
 
 def _defop(op, arity=None, reverse=False, reduce=False):
@@ -26,22 +25,16 @@ def _defop(op, arity=None, reverse=False, reduce=False):
         def __applyrop__(self, other):
             return BinaryOp(self, other, op=op, reverse=True)
 
-    elif arity == 1:
+    else:
+        assert arity == 1
+
         def __applyop__(self):
             return Apply0(self, op, reduce=reduce)
-
-    elif arity == 2:
-        def __applyop__(self):
-            return Apply1(self, op, reduce=reduce)
-
-    else:
-        raise TypeError("Can't define an operator with {} args".format(arity))
 
     if reverse:
         assert arity is None
         return __applyop__, __applyrop__
-    else:
-        return __applyop__
+    return __applyop__
 
 
 def _freeze(*objs):
@@ -50,14 +43,13 @@ def _freeze(*objs):
 
         if isinstance(obj, Trace):
             return obj.__freeze__()
-        elif isinstance(obj, dict):
+        if isinstance(obj, dict):
             return tuple((k, _freeze(obj[k])) for k in obj.keys())
-        elif isinstance(obj, (list, tuple, np.ndarray)):
+        if isinstance(obj, (list, tuple, np.ndarray)):
             return tuple(_freeze(val) for val in obj)
-        else:
-            return obj
-    else:
-        return _freeze(objs)
+        return obj
+
+    return _freeze(objs)
 
 
 class Trace:
@@ -70,11 +62,12 @@ class Trace:
         """Create a new trace."""
         if cls == Trace and not args:
             if all(isinstance(v, (type, list)) for v in kws.values()):
-                logger.debug("trace creates as State for %s", kws)
+                LOG.debug("trace creates as State for {}", kws)
                 return State(**kws)
 
-            if all(hasattr(v, '__call__') for v in kws.values()):
-                logger.debug("trace creates as Assign for %s", kws)
+            if all(hasattr(v, '__call__') and not isinstance(v, type)
+                   for v in kws.values()):
+                LOG.debug("trace creates as Assign for {}", kws)
                 return Assign(**kws)
 
             msg = "Expecting a state spec or assignments as keywords."
@@ -82,30 +75,31 @@ class Trace:
 
         return super().__new__(cls)
 
-    def __init__(self, *sources, columns=None, index=None, label=None):
+    def __init__(self, *sources, columns=None, index=None, name=None):
         """Create transformation with an given source and output columns."""
         if sources:
             if columns is None:
                 columns = sources[0].columns
             if index is None:
                 index = sources[0].index
-            if label is None and sources[0].label != 'value':
-                label = sources[0].label
+            if name is None and sources[0].name != 'value':
+                name = sources[0].name
 
-        label = label or (columns[0] if len(columns) == 1 else 'value')
-        logger.debug("trace initialized tracing %s %s from %s",
-                     columns, label, sources)
-        self.label = label
+        name = name or (columns[0] if len(columns) == 1 else 'value')
+        LOG.debug("trace initialized tracing {} {} from {}",
+                  columns, name, sources)
+        self.name = name
         self.sources = sources
         self.index = index
         self.columns = columns
 
     def __freeze__(self):
+        """Create a hashable representation of self."""
+        # XXX: we can't use hash & equal as we redefine for algebra
         return _freeze(self.sources,
                        self.columns,
                        None if self.index is None else list(self.index),
-                       self.label)
-
+                       self.name)
 
     def to(self, target=None, *args, **kws):
         """Make an instance of the target class with this traces."""
@@ -132,15 +126,16 @@ class Trace:
             raise ValueError("Supplied names should match length of columns.")
         return Trace(self, columns=names)
 
-    def values(self, label):
-        return Trace(self, label=label)
+    def label(self, name):
+        """Give a label to the values being traced."""
+        return Trace(self, name=name)
 
     def assign(self, **assings):
-        """Assign new variables by evaluating passed functions on the source."""
+        """Assign new variables by evaluating functions on the source."""
         return Assign(self, **assings)
 
     def __getattr__(self, name):
-        """Accessor for a single column of the trace."""
+        """Accessors for a single column of the trace."""
         if name in self.columns:
             return Columns(self, [name])
 
@@ -148,7 +143,7 @@ class Trace:
                              .format(type(self).__name__, name))
 
     def __getitem__(self, item):
-        """Subselection of slice or columns.
+        """Sub-selection of slice or columns.
 
         Parameters
         ----------
@@ -158,15 +153,15 @@ class Trace:
         """
         if isinstance(item, str):
             return Columns(self, [item])
-        elif isinstance(item, slice):
+        if isinstance(item, slice):
             return Slice(self, item)
-        elif isinstance(item, list):
+        if isinstance(item, list):
             return Columns(self, item)
-        elif isinstance(item, Trace):
+        if isinstance(item, Trace):
             return Filter(self, item)
-        else:
-            msg = "Getting item with a {}".format(type(item))
-            raise NotImplementedError(msg)
+
+        msg = "Getting item with a {}".format(type(item))
+        raise NotImplementedError(msg)
 
     __eq__ = _defop(operator.eq)
     __ne__ = _defop(operator.ne)
@@ -203,12 +198,12 @@ class Trace:
     mean = _defop(np.mean, arity=1, reduce=True)
     median = _defop(np.median, arity=1, reduce=True)
 
-    def quantile(self, qs=(.1, .25, .5, .75, .9)):
+    def quantile(self, quantiles=(.1, .25, .5, .75, .9)):
         """Trace quantiles over the data."""
-        ps = np.array(qs) * 100
+        ps = np.array(quantiles) * 100
         return Apply1(self, np.percentile, ps,
                       reduce=len(ps),
-                      index=pd.Index(qs, name='quantile'))
+                      index=pd.Index(quantiles, name='quantile'))
 
     def __str__(self):
         """Show content of the trace."""
@@ -234,7 +229,6 @@ class State(Trace):
 
     def __freeze__(self):
         return super().__freeze__() + _freeze(self.specs)
-
 
     def trace(self, ctx):
         """Return implementation that selects columns on the state."""
@@ -280,37 +274,38 @@ class Param(Trace):
             for pr in prs:
                 fns.append(pr)
         fns = tuple(fns)
-        l = self.length
+        length = self.length
 
         if self.length == 1:
             def base(fn):
                 @ctx.resolve_function
                 def impl(params, _):
-                    return np.arange(l), np.array([fn(params)])
+                    return np.arange(length), np.array([fn(params)])
                 return impl
         else:
             def base(fn):
                 @ctx.resolve_function
                 def impl(params, _):
                     raw = list(fn(params))
-                    return np.arange(l), np.array(raw).reshape(1, len(raw))
+                    return (np.arange(length),
+                            np.array(raw).reshape(1, len(raw)))
                 return impl
 
+        def reduce(*fns):
+            if len(fns) == 1:
+                return base(*fns)
 
-        def reduce(fn, *fns):
-            if not fns:
-                return base(fn)
-            else:
-                first = base(fn)
-                rest = reduce(*fns)
+            fn, *fns = fns
+            first = base(fn)
+            rest = reduce(*fns)
 
-                @ctx.resolve_function
-                def impl(params, _):
-                    idx, hd = first(params, _)
-                    _, rs = rest(params, _)
-                    return idx, np.concatenate((hd, rs))
+            @ctx.resolve_function
+            def impl(params, _):
+                idx, hd = first(params, _)
+                _, rs = rest(params, _)
+                return idx, np.concatenate((hd, rs))
 
-                return impl
+            return impl
 
         red = reduce(*fns)
 
@@ -373,8 +368,8 @@ class Assign(Trace):
                 raise NotImplementedError(msg.format(len(ix)))
 
             @ctx.resolve_function
-            def impl(pr, raw):
-                idx, ins = src(pr, raw)
+            def impl(params, raw):
+                idx, ins = src(params, raw)
 
                 new = np.empty((len(ins), 1))
                 new[:, 0] = call(ins)
@@ -390,8 +385,8 @@ class Assign(Trace):
 
         sel = self.select
 
-        def select(pr, raw):
-            idx, ins = source(pr, raw)
+        def select(params, raw):
+            idx, ins = source(params, raw)
             return idx, ins[:, sel:]
 
         return select
@@ -426,8 +421,8 @@ class Filter(Trace):
 
         elif len(self.predicate.columns) == len(self.source.columns):
             def impl(params, raw):
-                idx, src = source(params, raw) 
-                _, pred =  predicate(params, raw)
+                idx, src = source(params, raw)
+                _, pred = predicate(params, raw)
                 pred = pred.astype(np.bool_)
                 return idx[pred], src[pred]
 
@@ -464,12 +459,12 @@ class BinaryOp(Trace):
 
         if self.reverse:
             @ctx.resolve_function
-            def apply(a, b):
-                return op(b, a)
+            def apply(fst, snd):
+                return op(snd, fst)
         else:
             @ctx.resolve_function
-            def apply(a, b):
-                return op(a, b)
+            def apply(fst, snd):
+                return op(fst, snd)
 
         if isinstance(other, pd.Series):
             other = other.loc[self.columns]
@@ -547,10 +542,10 @@ class Apply(Trace):
 
 class Apply0(Apply):
     """Apply a 0-arg method on each column of the trace."""
-
     def apply(self):
-        """Return implmentation applying the 0-arg method."""
+        """Return implementation applying the 0-arg method."""
         method = self.method
+        assert not self.args
 
         def impl(raw):
             return method(raw)
@@ -561,8 +556,9 @@ class Apply1(Apply):
     """Apply a 1-arg method on each column of the trace."""
 
     def apply(self):
-        """Return implmentation applying the 1-arg method."""
+        """Return implementation applying the 1-arg method."""
         method = self.method
+        assert len(self.args) == 1
         arg, = self.args
 
         def impl(raw):
@@ -571,7 +567,7 @@ class Apply1(Apply):
 
 
 class Columns(Trace):
-    """Subselection on columns."""
+    """Sub-selection on columns."""
 
     def __init__(self, source, columns):
         if not all(c in source.columns for c in columns):
@@ -628,13 +624,16 @@ class Slice(Trace):
         return impl
 
 
-class Frame:
-    """Create pandas dataframes out of traces."""
-    data = None
+class Tracer:
+    """Base class for publishing data for traces."""
+    buffer = None
 
     def __init__(self, trace, skip=1):
         self.trace = trace
         self.skip = skip
+        self.traces = []
+        self.idxs = []
+        self.count = 0
 
     def frame(self, idxs=(), traces=(), offset=0):
         """Create a Dataframe out of the given traces."""
@@ -655,30 +654,31 @@ class Frame:
         elif not idxs:
             idxs = [[0]]
 
-        idx =  pd.MultiIndex.from_tuples(chain(*(product([t], idx)
-                                                 for t, idx in zip(trx, idxs))),
-                                         names=(trx.name, srx.name))
+        idx = pd.MultiIndex.from_tuples(chain(*(product([t], idx)
+                                                for t, idx in zip(trx, idxs))),
+                                        names=(trx.name, srx.name))
         if traces:
             df = pd.DataFrame(np.concatenate(traces),
                               index=idx,
                               columns=columns)
         else:
             df = pd.DataFrame(0, index=idx, columns=columns)
-            
-        logger.info("%s created frame for %d traces %s", 
-                    self, len(traces), df.shape)
-            
-        return df
-            
 
+        LOG.debug("created {}-frame of {:d} traces for {}",
+                  'x'.join(str(n) for n in df.shape), len(traces), self)
+
+        return df
 
     def prepare(self):
         """Prepare the internals, called before running a new simulation."""
         self.traces = []
         self.idxs = []
-        self.data = self.frame().iloc[:0]
         self.count = 0
-        return self.data
+
+    @property
+    def data(self):
+        """Return a dataframe containing published data."""
+        return self.frame()
 
     def publish(self, idx, trace):
         """Handle the trace data called when it becomes available."""
@@ -689,9 +689,6 @@ class Frame:
 
     def finalize(self):
         """Take care to finalize all the data given to the manager."""
-        df = self.frame(self.idxs, self.traces)
-        self.data[df.columns] = df
-        return df
 
     def __str__(self):
         """Show class alongside the trace."""
@@ -702,33 +699,43 @@ class Frame:
         return "{}({!r})".format(type(self).__name__, self.trace)
 
 
-class Holotrace(Frame):
+class Frame(Tracer):
+    """Publishes data into a dataframe"""
+    def prepare(self):
+        super().prepare()
+        self.buffer = self.frame().iloc[:0]
+        return self.buffer
+
+    @property
+    def data(self):
+        return self.buffer
+
+    def finalize(self):
+        df = self.frame(self.idxs, self.traces)
+        self.data[df.columns] = df
+        return df
+
+
+class Holotrace(Tracer):
     """Publish traces to a `holoviews.Buffer`."""
 
     def __init__(self, trace, skip=1, batch=1, timeout=None):
         super().__init__(trace, skip=skip)
 
-        import holoviews as hv
-        assert hv
+        from holoviews import streams
 
         self.batch = batch
         self.timeout = timeout
         self.last = None
-
-    @lazy
-    def buffer(self):
-        """Get the `holoviews.Buffer` where the data will be published to."""
-        from holoviews import streams
-        return streams.Buffer(self.frame(),
-                              index=False,
-                              length=np.iinfo(int).max)
+        self.offset = 0
+        self.buffer = streams.Buffer(self.frame(),
+                                     index=False,
+                                     length=np.iinfo(int).max)
 
     def prepare(self):
         """Clear and return the holoviews trace buffer."""
+        super().prepare()
         self.buffer.clear()
-        self.traces = []
-        self.idxs = []
-        self.count = 0
         self.last = time.time()
         self.offset = 0
         return self.buffer
@@ -740,7 +747,7 @@ class Holotrace(Frame):
 
     def push(self):
         """Push remaining traces towards the holoviews buffer."""
-        logger.info("%s pushes %d traces.", self, len(self.traces))
+        LOG.debug("{} pushes {:d} traces.", self, len(self.traces))
         if self.traces:
             df = self.frame(self.idxs, self.traces, offset=self.offset)
 
@@ -756,37 +763,30 @@ class Holotrace(Frame):
 
         @param trace raw numpy trace data
         """
-        if self.count % self.skip == 0:
-            self.traces.append(trace)
-            self.idxs.append(trace)
+        super().publish(idx, trace)
 
         if len(self.traces) >= self.batch:
             self.push()
 
         elif (self.timeout is not None
-                and self.traces
-                and time.time() - self.last > self.timeout):
+              and self.traces
+              and time.time() - self.last > self.timeout):
             self.push()
-
-        self.count += 1
-
 
     def finalize(self):
         """Ensure that all traces end up in the holoviews buffer."""
         self.push()
 
-    def dataset(self, data=None):
+    def dataset(self, data):
         """Return the buffers data as a holoviews Dataset."""
         import holoviews as hv
-        if data is None:
-            data = self.buffer.data
         data = (data
                 .stack(dropna=False)
                 .swaplevel(-1, -2)
-                .to_frame(name=self.trace.label))
+                .to_frame(name=self.trace.name))
         return hv.Dataset(data,
                           kdims=list(data.index.names),
-                          vdims=[self.trace.label])
+                          vdims=[self.trace.name])
 
     def plot(self, obj, *args, **kws):
         """Plot the trace data using a holoview object."""

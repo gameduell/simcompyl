@@ -10,7 +10,6 @@ scope of the model, as
 - we can run the same simulation with different (partial) parameter sets
 """
 
-import numpy as np
 import weakref
 import contextlib
 import logging
@@ -19,11 +18,13 @@ from itertools import chain
 from types import FunctionType
 from inspect import signature
 
+import numpy as np
+
 __all__ = ['Allocation', 'Param', 'Distribution',
            'Uniform', 'Bernoulli',
            'Continuous', 'Normal', 'Exponential']
 
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 
 
 class Param:
@@ -35,7 +36,7 @@ class Param:
         name of the parameter shown to the user
     default
         default value for the given parameter
-    help : str
+    descr : str
         longer description of the parameter
     options : tuple, list or dict thereof
         restrictions on the values, could be
@@ -45,7 +46,7 @@ class Param:
 
     """
 
-    def __init__(self, name, default, help=None, options=None):
+    def __init__(self, name, default, descr=None, options=None):
         """Create a new param descriptor with the supplied options.
 
         Parameters
@@ -54,7 +55,7 @@ class Param:
             name for the parameter as shown to the user
         default
             default value for the given parameter
-        help : str (optional)
+        descr : str (optional)
             longer description of the parameter
         options : tuple, list or dict thereof (optional)
             restrictions on the values, could be
@@ -66,9 +67,10 @@ class Param:
         self.allocs = weakref.WeakKeyDictionary()
         self.name = name
         self.default = default
-        self.help = help
+        self.descr = descr
 
         self.options = options
+
 
     @property
     def arity(self):
@@ -90,8 +92,7 @@ class Param:
         """Access the alloc instance for this parameter."""
         if instance is None:
             return self
-        else:
-            return self.alloc(instance)
+        return self.alloc(instance)
 
     def __set__(self, instance, value):
         """Update the alloc instance for this parameter."""
@@ -154,16 +155,15 @@ class Alloc:
 
     def update(self, value):
         """Update the current value notifying subscribers about the change."""
-        logger.debug("param update of %s to %s", self.name, value)
+        LOG.debug("param update of {} to {}", self.name, value)
 
         # TODO validation of values
         prev, self.value = self.value, value
 
         if prev != value:
-            for s in self.subscribers:
-                # TODO logging
-                logger.debug("... notifying %s", s)
-                s(self.name, prev, value)
+            for sub in self.subscribers:
+                LOG.debug("... notifying {}", sub)
+                sub(self.name, prev, value)
 
     def reset(self):
         """Reset the value to the default one of the parameter."""
@@ -175,13 +175,13 @@ class Alloc:
             msg = "Callback object should be callable, not a {}."
             raise TypeError(msg.format(type(callback).__name__))
 
-        logger.info("param subscription on %s to %s", self.name, callback)
+        LOG.info("param subscription on {} to {}", self.name, callback)
 
         try:
             signature(callback).bind('', None, None)
-        except TypeError as e:
+        except TypeError as err:
             msg = "Callback should accept 3 positional args (name, old, new)."
-            raise TypeError(msg) from e
+            raise TypeError(msg) from err
 
         self.subscribers.append(callback)
 
@@ -189,11 +189,12 @@ class Alloc:
         """Remove a `callback(name, old, new)` from being notified."""
         try:
             idx = self.subscribers.index(callback)
-            logger.info("param unsubscription on %s of %s", self.name, callback)
+            LOG.info("param unsubscription on {} of {}",
+                     self.name, callback)
             return self.subscribers.pop(idx)
         except ValueError:
-            logger.warning("param unsubscription on %s not possible for %s",
-                           self.name, callback)
+            LOG.warning("param unsubscription on {} not possible for {}",
+                        self.name, callback)
             return None
 
     def __str__(self):
@@ -223,13 +224,13 @@ class Allocation:
         """Temporarily set some parameter values inside a context."""
         vals = {}
         try:
-            logger.info("creating context allocation %s", kws)
+            LOG.info("creating context allocation {}", kws)
             for name, value in kws.items():
                 vals[name] = getattr(self, name).value
                 setattr(self, name, value)
             yield self
         finally:
-            logger.info("restoring context allocation %s", vals)
+            LOG.info("restoring context allocation {}", vals)
             for name, value in vals.items():
                 setattr(self, name, value)
 
@@ -254,25 +255,23 @@ class Allocation:
         """
         if isinstance(other, Allocation):
             return CombinedAllocation(self, other)
-        else:
-            return NotImplemented
+
+        return NotImplemented
 
     def __contains__(self, name):
         """Check if a parameter with the given name is defined."""
         for n, a in self.items():
-            if name == n or name == a.name:
+            if name in (n, a.name):
                 return True
-        else:
-            return False
+        return False
 
     def __getitem__(self, name):
         """Get the parameter with the given name."""
         for n, a in self.items():
-            if name == n or name == a.name:
+            if name in (n, a.name):
                 return a
-        else:
-            msg = "Unknown parameter {!r} for {}."
-            raise IndexError(msg.format(name, self))
+        msg = "Unknown parameter {!r} for {}."
+        raise IndexError(msg.format(name, self))
 
     def keys(self):
         """Iterate through the attribute names of all parameters."""
@@ -310,7 +309,7 @@ class CombinedAllocation(Allocation):
     """A combination of other allocation objects."""
 
     def __init__(self, *bases):
-        logger.info("combining allocations %s", ' + '.join(map(str, bases)))
+        LOG.info("combining allocations {}", ' + '.join(map(str, bases)))
         super().__init__()
 
         conflicts = set()
@@ -345,18 +344,18 @@ class CombinedAllocation(Allocation):
         if not name.startswith('_'):
             for alloc in self._bases:
                 if hasattr(alloc, name):
-                    logger.debug("setting combined %s on %s", name, alloc)
+                    LOG.debug("setting combined {} on {}", name, alloc)
                     return setattr(alloc, name, value)
 
-        super().__setattr__(name, value)
+        return super().__setattr__(name, value)
 
     def __delattr__(self, name):
         for alloc in self._bases:
             if hasattr(alloc, name):
-                logger.debug("resetting combined %s on %s", name, alloc)
+                LOG.debug("resetting combined {} on {}", name, alloc)
                 return delattr(alloc, name)
 
-        super().__delattr__(name)
+        return super().__delattr__(name)
 
     def __dir__(self):
         return (list(super().__dir__())
@@ -392,16 +391,15 @@ class Distribution(Param):
         val = val.value if val is not None else self.default
         if isinstance(val, dict):
             return tuple(val.values())
-        elif isinstance(val, (tuple, list)):
+        if isinstance(val, (tuple, list)):
             return tuple(val)
-        else:
-            return val,
+        return (val, )
 
 
 class Uniform(Distribution):
     """Parameters for a uniform distribution."""
 
-    def __init__(self, name, low, high, help=None, options=None):
+    def __init__(self, name, low, high, descr=None, options=None):
         """Create a new uniform distribution.
 
         Parameters
@@ -410,12 +408,12 @@ class Uniform(Distribution):
             lowest number for uniform distribution
         high : int
             highest number for uniform distribution
-        help : str (optional)
+        descr : str (optional)
             long description for this parameter
         options : tuple (optional)
             bounds for low and high
         """
-        super().__init__(name, (low, high), help=help, options=options)
+        super().__init__(name, (low, high), descr=descr, options=options)
 
     def sample(self):
         """Get sampling method for the uniform distribution."""
@@ -438,7 +436,7 @@ class Bernoulli(Distribution):
             lowest number for uniform distribution
         high : int
             highst number for uniform distribution
-        help : str (optional)
+        descr : str (optional)
             long description for this parameter
         options : tuple (optional)
             bounds for low and high
@@ -455,7 +453,7 @@ class Bernoulli(Distribution):
 class Continuous(Distribution):
     """Parameters for a uniform continues distribution."""
 
-    def __init__(self, name, low, high, help=None, options=None):
+    def __init__(self, name, low, high, descr=None, options=None):
         """Create a new continuous distribution.
 
         Parameters
@@ -464,12 +462,12 @@ class Continuous(Distribution):
             lowest number for uniform distribution
         high : float
             highst number for uniform distribution
-        help : str (optional)
+        descr : str (optional)
             long description for this parameter
         options : tuple (optional)
             bounds for low and high
         """
-        super().__init__(name, (low, high), help=help, options=options)
+        super().__init__(name, (low, high), descr=descr, options=options)
 
     def sample(self):
         """Get sampling method for the continuous distribution."""
@@ -481,7 +479,7 @@ class Continuous(Distribution):
 class Normal(Distribution):
     """Parameters for a normal distribution."""
 
-    def __init__(self, name, loc, scale, help=None, options=None):
+    def __init__(self, name, loc, scale, descr=None, options=None):
         """Create a new continuious distribution.
 
         Parameters
@@ -490,13 +488,13 @@ class Normal(Distribution):
            mean of the normal distribution
         scale : float
            deviation of the normal distribution
-        help : str (optional)
+        descr : str (optional)
             long description for this parameter
         options : tuple (optional)
             bounds for loc and scale of the normal distribution
         """
         super().__init__(name, {'loc': loc, 'scale': scale},
-                         help=help, options=options)
+                         descr=descr, options=options)
 
     def sample(self):
         """Get sampling method for the normal distribution."""
@@ -515,7 +513,7 @@ class Exponential(Distribution):
         ----------
         scale : float
             scale of the exponential distribution
-        help : str (optional)
+        descr : str (optional)
             long description for this parameter
         options : tuple (optional)
             bounds for scale of the distribution

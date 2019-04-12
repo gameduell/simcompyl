@@ -6,12 +6,13 @@ from contextlib import contextmanager, ExitStack
 from functools import wraps
 from types import FunctionType
 
+import logging
+
 from .util import Resolvable
 from .trace import Trace
 
-import logging
 
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 
 __all__ = ['Model', 'step']
 
@@ -30,10 +31,9 @@ class Specs(Resolvable):
     `activate`d in a context of the models `@step`.
 
     Moreover, the call will return accessors according to the spec that can be
-    used during the execution of the simulation. This is archived by letting the
-    execution engine register itself inside the `resolving` context and giving
-    control to the engine to create the accessor.
-
+    used during the execution of the simulation. This is archived by letting
+    the execution engine register itself inside the `resolving` context and
+    giving control to the engine to create the accessor.
     """
 
     def __init__(self, name, collect=None):
@@ -70,7 +70,7 @@ class Specs(Resolvable):
 
     def unresolved(self, name, spec):
         """Return the spec when no resolver is bound."""
-        logger.debug("spec default resolution for {} of {}", self._name, name)
+        LOG.debug("spec default resolution for {} of {}", self._name, name)
         return spec
 
     @contextmanager
@@ -108,14 +108,13 @@ class Specs(Resolvable):
             previous defined spec if available.
 
         """
-        logger.debug("spec validation for %s of %s = %s against %s",
-                     self._name, name, spec, prev)
+        LOG.debug("spec validation for {} of {} = {} against {}",
+                  self._name, name, spec, prev)
         if spec is ...:
             if prev is None:
-                msg = "Invalid specs ellipsis for {!r}, no previous definition."
+                msg = "Invalid spec ellipsis for {!r}, no previous definition."
                 raise TypeError(msg.format(name))
-            else:
-                return prev
+            return prev
 
         if isinstance(spec, dict) and (prev is None or isinstance(prev, dict)):
             result = {}
@@ -204,9 +203,9 @@ class Specs(Resolvable):
             Access = namedtuple('Access', list(results))
             return Access(**{name: self.resolve(name, spec)
                              for name, spec in results.items()})
-        else:
-            (name, spec), = results.items()
-            return self.resolve(name, spec)
+
+        (name, spec), = results.items()
+        return self.resolve(name, spec)
 
 
 class SpecsCollection(dict):
@@ -220,12 +219,12 @@ class SpecsCollection(dict):
 
         Parameters
         ----------
-            obj: object
-                a python object where attributes are set to new dictionaries
-                for all the specs defined inside the collection
+        obj: object
+            a python object where attributes are set to new dictionaries
+            for all the specs defined inside the collection
 
         """
-        for name, sepcs in self.items():
+        for name, _ in self.items():
             setattr(obj, name, {})
 
     @contextmanager
@@ -239,7 +238,7 @@ class SpecsCollection(dict):
                 collection.
 
         """
-        logger.debug("specs activation of %s", obj)
+        LOG.debug("specs activation of {}", obj)
         with ExitStack() as stack:
             for name, specs in self.items():
                 stack.enter_context(specs.activate(getattr(obj, name)))
@@ -304,12 +303,13 @@ class StepDescriptor:
         """Return the step instance for this descriptor."""
         if instance is None:
             return self
-        elif instance in self.refs:
+
+        if instance in self.refs:
             return self.refs[instance]
-        else:
-            ref = Step(instance, self.method.__get__(instance, owner))
-            self.refs[instance] = ref
-            return ref
+
+        ref = Step(instance, self.method.__get__(instance, owner))
+        self.refs[instance] = ref
+        return ref
 
 
 class Step:
@@ -398,9 +398,9 @@ class Model:
         """Access state variables to trace them."""
         if name in self.state:
             return self[name]
-        else:
-            raise AttributeError('{!r} object has no attribute {!r}.'
-                                 .format(type(self).__name__, name))
+
+        raise AttributeError('{!r} object has no attribute {!r}.'
+                             .format(type(self).__name__, name))
 
     def __dir__(self):
         """List state keys as well."""
@@ -427,7 +427,7 @@ class Model:
     @contextmanager
     def resolving(self, *, steps, state, params, random, derives):
         """Use the supplied function for resolving allocation in `Specs`."""
-        logger.debug("resolving with %s, ...", steps)
+        LOG.debug("resolving with {}, ...", steps)
         with self.steps.resolving(steps), \
                 self.state.resolving(state), \
                 self.params.resolving(params), \
@@ -483,7 +483,7 @@ class Model:
         def annotate(fn):
             name = '{}({})'.format(fn.__name__, ','.join(deps))
 
-            logger.debug("derive on %s using %s", name, deps)
+            LOG.debug("derive on {} using {}", name, deps)
             self.allocs(**deps)
             return self.derives(**{name: (fn, deps)})
         return annotate

@@ -37,8 +37,8 @@ class Simulation(sim.Allocation):
 
 class Amounts(sim.Allocation):
     init = sim.Param("Initial Value", 0)
-    speed = sim.Normal("speed", 0, .2, help="Distribution of speeds")
-    radius = sim.Normal("Radius", 1, .2, help="Distribution of radius")
+    speed = sim.Normal("speed", 0, .2, descr="Distribution of speeds")
+    radius = sim.Normal("Radius", 1, .2, descr="Distribution of radius")
     complex = sim.Param("Complex", {'a': [1, 2, 3],
                                     'b': [0, 2, 1],
                                     'c': [1, 4, 9]})
@@ -58,6 +58,9 @@ def test_tracing(engine):
     assert "State" in str(tr)
     assert all(c in repr(tr) for c in tr.columns)
 
+    assert tr.label('baz').name == 'baz'
+    assert tr.label('baz').take(6).name == 'baz'
+
     with exec.trace(tr.take(6)) as td:
         exec.run()
 
@@ -66,6 +69,7 @@ def test_tracing(engine):
                        td.const.unstack()[1:])
     assert_frame_equal(td.alt.unstack().diff().abs()[1:],
                        2 * td.const.unstack().abs()[1:])
+
 
     with exec.trace(tr.take(6), skip=4) as td:
         exec.run()
@@ -167,6 +171,9 @@ def test_tracing(engine):
 
 
 def test_invalids():
+    with pytest.raises(TypeError):
+        sim.Trace(a=int, b=lambda a: 2 * a)
+
     with pytest.raises(AttributeError):
         sim.Trace(a=int, b=int).c
 
