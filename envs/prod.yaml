@@ -16,5 +16,6 @@ dependencies:
   - holoviews
   - panel
   - bokeh
+  - graphviz
   - python-graphviz
 

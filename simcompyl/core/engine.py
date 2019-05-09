@@ -27,8 +27,7 @@ class BasicExecution:
     @contextmanager
     def trace(self, *traces, target=None, **options):
         """Activate given traces."""
-        LOG.debug("engine activates traces {} using {} target",
-                  traces, target or 'default')
+        LOG.debug(f"engine activates traces {traces} to {target or 'default'}")
 
         traces = [tr.to(target, **options) if isinstance(tr, Trace) else tr
                   for tr in traces]
@@ -40,7 +39,7 @@ class BasicExecution:
                    else [tr.prepare() for tr in traces])
 
         finally:
-            LOG.debug("engine deactivates traces {} traces")
+            LOG.debug(f"engine deactivates traces {traces}")
             for tr in traces:
                 tr.finalize()
             self.traces = self.traces[:-len(traces)]
@@ -48,12 +47,12 @@ class BasicExecution:
     def tracing(self, trace):
         """Cache of a trace method."""
         if trace.__freeze__() in self.trace_cache:
-            LOG.debug("engine cached trace {}", trace)
+            LOG.debug(f"engine cached trace {trace}")
             return self.trace_cache[trace.__freeze__()]
 
         ctx = TraceContext(self)
 
-        LOG.debug("engine resolving trace {}", trace)
+        LOG.debug(f"engine resolving trace {trace}")
         with self.resolving():
             cc = self.compile(ctx.resolve_function(trace.trace(ctx)),
                               vectorize=False)
@@ -72,7 +71,6 @@ class BasicExecution:
         init = self.init
         iterate = self.iterate
         apply = self.apply
-        finish = self.finish
 
         trs = [(tr.publish, self.tracing(tr.trace))
                for tr in self.traces]
@@ -85,25 +83,22 @@ class BasicExecution:
             def trace(_, __):
                 pass
 
-        LOG.info("engine initializes simulation {}", self.model)
+        LOG.info(f"engine initializes {self.model}")
         init(params, state)
         trace(params, state)
 
-        LOG.info("engine iterates simulation {}", self.model)
+        LOG.info(f"engine iterates {self.model}")
         for _ in range(self.alloc.n_steps.value):
             iterate(params, state)
             apply(params, state)
             trace(params, state)
-
-        LOG.info("engine finishes simulation {}", self.model)
-        finish(params, state)
 
         return self.frame(state)
 
     @contextmanager
     def resolving(self):
         """Context where this engine should resolve accessors of the model."""
-        LOG.debug("engine registers itself as resolver for {}", self.model)
+        LOG.debug(f"engine registers itself as resolver for {self.model}")
         with self.model.resolving(steps=self.resolve_steps,
                                   state=self.resolve_state,
                                   params=self.resolve_params,
@@ -114,39 +109,32 @@ class BasicExecution:
     @lazy
     def init(self):
         """Cache of the initialization of the model."""
-        LOG.debug("engine resolves {}", self.model.init)
+        LOG.debug(f"engine resolves {self.model.init}")
         with self.resolving():
-            return self.compile(self.model.init(), vectorize=True)
+            return self.compile(self.model.init, vectorize=True)
 
     @lazy
     def iterate(self):
         """Cache of the iteration of the model."""
-        LOG.debug("engine resolves {}", self.model.iterate)
+        LOG.debug(f"engine resolves {self.model.iterate}")
         with self.resolving():
-            return self.compile(self.model.iterate(), vectorize=True)
+            return self.compile(self.model.iterate, vectorize=True)
 
     @lazy
     def apply(self):
         """Cache of the application of the model."""
-        LOG.debug("engine resolves {}", self.model.apply)
+        LOG.debug(f"engine resolves {self.model.apply}")
         with self.resolving():
-            return self.compile(self.model.apply(), vectorize=False)
-
-    @lazy
-    def finish(self):
-        """Cache of the finalization of the model."""
-        LOG.debug("engine resolves {}", self.model.finish)
-        with self.resolving():
-            return self.compile(self.model.finish(), vectorize=True)
+            return self.compile(self.model.apply, vectorize=False)
 
     def params(self):
         """Parameters as passed to optimized simulation methods."""
-        LOG.info("engine creates params arg")
+        LOG.info(f"engine creates params arg")
         return self.alloc
 
     def state(self):
         """State as passed to optimized simulation methods."""
-        LOG.info("engine creates state arg")
+        LOG.info(f"engine creates state arg")
         shape = (self.alloc.n_samples.value,
                  sum(len(v) if isinstance(v, list) else 1
                      for v in self.model.state.specs.values()))
@@ -154,35 +142,34 @@ class BasicExecution:
 
     def frame(self, state):
         """Create a dataframe for the given state representation."""
-        LOG.debug("engine creates frame of given state")
+        LOG.debug(f"engine creates frame of given state")
         columns = sum([[n for _ in s] if isinstance(s, list) else [n]
                        for n, s in self.model.state.specs.items()], [])
         return pd.DataFrame(state, columns=columns)
 
-    def resolve_steps(self, name, impl):
+    def resolve_steps(self, name, step):
         """Create an accessor for a step implementation method."""
-        LOG.debug("engine resolves step {}", name)
+        LOG.debug(f"engine resolves step {name}")
 
-        return impl
+        return step.impl
 
     def resolve_state(self, name, typ):
         """Create an accessor for parts of the state."""
-        LOG.debug("engine resolves state {}", name)
+        LOG.debug(f"engine resolves state {name}")
 
         idx = sum(([n for _ in s] if isinstance(s, list) else [n]
                    for n, s in self.model.state.specs.items()), []).index(name)
 
         if isinstance(typ, list):
-            LOG.debug("engine resolved state {} to range({:i}, {:i})",
-                      name, idx, idx + len(typ))
+            LOG.debug(f"engine resolved state {name} to {idx}:{idx + len(typ)}")
             return list(range(idx, idx + len(typ)))
 
-        LOG.debug("engine resolved state {} to {:d}", name, idx)
+        LOG.debug(f"engine resolved state {name} to {idx:d}")
         return idx
 
     def resolve_params(self, name, typ):
         """Create an accessor for a parameter value."""
-        LOG.debug("engine resolves param {}", name)
+        LOG.debug(f"engine resolves param {name}")
 
         if isinstance(typ, dict):
             def define(key):
@@ -192,17 +179,17 @@ class BasicExecution:
 
             Getters = namedtuple('Getters', list(typ))
             getters = {n: define(n) for n in typ}
-            LOG.debug("engine resolved param {} to {}", name, getters)
+            LOG.debug(f"engine resolved param {name} to {getters}")
             return Getters(**getters)
         else:
             def std_getter(params):
                 return getattr(params, name).value
-            LOG.debug("engine resolved param {} to {}", name, std_getter)
+            LOG.debug(f"engine resolved param {name} to {std_getter}")
             return std_getter
 
     def resolve_random(self, name, _):
         """Create an accessor for a random distribution."""
-        LOG.debug("engine resolves random {}", name)
+        LOG.debug(f"engine resolves random {name}")
 
         def getter(params):
             alloc = getattr(params, name)
@@ -213,7 +200,7 @@ class BasicExecution:
     def resolve_derives(self, name, spec):
         """Create an accessor for a derivied parameter."""
         fn, deps = spec
-        LOG.debug("engine resolves derives {}", name)
+        LOG.debug(f"engine resolves derives {name}")
 
         def getter(params):
             return fn(*[getattr(params, n).value for n in deps])
@@ -222,13 +209,13 @@ class BasicExecution:
 
     def resolve_function(self, function):
         """Resolve a function that is called during simulation."""
-        LOG.debug("engine resolves function {}", function.__name__)
+        LOG.debug(f"engine resolves function {function.__name__}")
         return function
 
     def compile(self, impl, vectorize=True):
         """Create a compiled version of a step implementation."""
         # TODO more doc
-        LOG.info("engine compiles {} (vectorize={})", impl, True)
+        LOG.info(f"engine compiles {impl.__name__} (vectorize=True)")
         if vectorize:
             def vector(params, state):
                 for i in range(state.shape[0]):
@@ -294,7 +281,7 @@ class NumbaExecution(BasicExecution):
                    "perhaps you forgot the @sim.step decorator")
             raise AttributeError(msg.format(impl))
 
-        LOG.info("engine compiles {} (vectorize={})", impl, vectorize)
+        LOG.info(f"engine compiles {impl.py_func.__name__} (vectorize={vectorize})")
         if vectorize:
             return self.vjit([(nb.float64[:], nb.float64[:])], '(m),(n)',
                              fastmath=self.fastmath,
@@ -308,7 +295,7 @@ class NumbaExecution(BasicExecution):
     @lazy
     def layout(self):
         """Cache for positioning parameters into an numpy array."""
-        LOG.info("engine creates layout for parameters.")
+        LOG.info(f"engine creates layout for parameters.")
         layout = []
 
         for name, spec in self.model.params.specs.items():
@@ -349,7 +336,7 @@ class NumbaExecution(BasicExecution):
 
     def params(self):
         """Create a numpy array for the parameters of the simulation."""
-        LOG.info("engine creates parameters numpy array")
+        LOG.info(f"engine creates parameters numpy array")
         params = []
 
         for name, spec in self.model.params.specs.items():
@@ -413,14 +400,14 @@ class NumbaExecution(BasicExecution):
 
         return np.array(params, dtype=float)
 
-    def resolve_steps(self, name, impl):
+    def resolve_steps(self, name, step):
         """Return the binding for the given step."""
-        LOG.debug("engine resolves step {}", name)
-        return self.njit(impl)
+        LOG.debug(f"engine resolves step {name}")
+        return self.njit(step.impl)
 
     def resolve_params(self, name, typ):
         """Return the binding for a given parameter."""
-        LOG.debug("engine resolves param {}", name)
+        LOG.debug(f"engine resolves param {name}")
 
         if isinstance(typ, dict):
             lx = self.layout.index(name)
@@ -435,7 +422,7 @@ class NumbaExecution(BasicExecution):
             Getters = namedtuple('Getters', list(typ))
             getters = {n: define(self.layout.index((name, n)), ts)
                        for n, ts in typ.items()}
-            LOG.debug("engine resolved param {} to {}", name, getters)
+            LOG.debug(f"engine resolved param {name} to {getters}")
             return Getters(**getters)
 
         else:
@@ -444,12 +431,12 @@ class NumbaExecution(BasicExecution):
             @self.njit
             def std_getter(params):
                 return typ(params[idx])
-            LOG.debug("engine resolved param {} to {}", name, std_getter)
+            LOG.debug(f"engine resolved param {name} to {std_getter}")
             return std_getter
 
     def resolve_random(self, name, _):
         """Return the binding for a given distribution parameter."""
-        LOG.debug("engine resolves random {}", name)
+        LOG.debug(f"engine resolves random {name}")
 
         dist = getattr(self.alloc, name)
         idx = self.layout.index(name)
@@ -473,7 +460,7 @@ class NumbaExecution(BasicExecution):
 
     def resolve_derives(self, name, spec):
         """Return the binding for a give derived parameter."""
-        LOG.debug("engine resolves derives {}", name)
+        LOG.debug(f"engine resolves derives {name}")
         idx = self.layout.index(name)
 
         fn, deps = spec
@@ -520,12 +507,12 @@ class NumbaExecution(BasicExecution):
 
     def resolve_function(self, function):
         """Return the binding for the given step."""
-        LOG.debug("engine resolves function {}", function.__name__)
+        LOG.debug(f"engine resolves function {function.__name__}")
         return self.njit(function)
 
 
 class PseudoNumbaExecution(NumbaExecution):
-    """Engine for debugging with same structure as NumbaExecution but not using numba."""
+    """Engine for debugging with same structure as NumbaExecution."""
     def __init__(self, model, alloc):
         super().__init__(model, alloc, use_gufunc=False)
 

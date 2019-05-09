@@ -43,7 +43,7 @@ get_ipython().run_line_magic('pycat', 'examples/walk/walk.py')
 # 
 # Now we can initalize an instance of the model and the allocations:
 
-# In[4]:
+# In[3]:
 
 
 model = walk.ComplexWalk()
@@ -52,13 +52,13 @@ alloc = walk.BasicDistance() + walk.Simulation()
 
 # As the structure of the model is defined with the `step` annotation and resolving is done before the actual call inside the implementation, the model can be inspected without execution:
 
-# In[5]:
+# In[4]:
 
 
-model.graph(rankdir='TD')
+model.graph(rankdir='LR')
 
 
-# In[6]:
+# In[9]:
 
 
 alloc
@@ -69,25 +69,25 @@ alloc
 
 # To run the definitions inside the model, we create an `Execution` object, that will create optmized code for fast execution. The first execution therefore will take more time, but further executions, even when chaning parameters, will be fast.
 
-# In[7]:
+# In[10]:
 
 
 exec = sim.Execution(model, alloc)
 
 
-# In[8]:
+# In[11]:
 
 
 get_ipython().run_line_magic('time', 'out = exec.run()')
 
 
-# In[9]:
+# In[12]:
 
 
 get_ipython().run_line_magic('time', 'out = exec.run(initial_energy=2000);')
 
 
-# In[10]:
+# In[13]:
 
 
 out.head()
@@ -95,7 +95,7 @@ out.head()
 
 # This way, one can execute the model with a big sample size in a short amount of time:
 
-# In[11]:
+# In[14]:
 
 
 get_ipython().run_line_magic('time', 'out = exec.run(n_steps=500, n_samples=1_000_000)')

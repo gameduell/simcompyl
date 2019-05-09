@@ -90,7 +90,7 @@ class Resolvable:
     @contextmanager
     def resolving(self, resolver):
         """Context in which a resolver is bound."""
-        LOG.debug("resolving for {} with {}", self, resolver)
+        LOG.debug(f"resolving for {self} with {resolver}", self, resolver)
         self._resolver = resolver
         try:
             yield

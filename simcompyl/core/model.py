@@ -8,7 +8,7 @@ from types import FunctionType
 
 import logging
 
-from .util import Resolvable
+from .util import Resolvable, lazy
 from .trace import Trace
 
 
@@ -70,7 +70,7 @@ class Specs(Resolvable):
 
     def unresolved(self, name, spec):
         """Return the spec when no resolver is bound."""
-        LOG.debug("spec default resolution for {} of {}", self._name, name)
+        LOG.debug(f"spec default resolution for {self._name} of {name}")
         return spec
 
     @contextmanager
@@ -108,8 +108,7 @@ class Specs(Resolvable):
             previous defined spec if available.
 
         """
-        LOG.debug("spec validation for {} of {} = {} against {}",
-                  self._name, name, spec, prev)
+        LOG.debug(f"validation for {self._name} of {name}={spec} ? {prev}")
         if spec is ...:
             if prev is None:
                 msg = "Invalid spec ellipsis for {!r}, no previous definition."
@@ -238,7 +237,7 @@ class SpecsCollection(dict):
                 collection.
 
         """
-        LOG.debug("specs activation of {}", obj)
+        LOG.debug(f"specs activation of {obj}")
         with ExitStack() as stack:
             for name, specs in self.items():
                 stack.enter_context(specs.activate(getattr(obj, name)))
@@ -305,11 +304,12 @@ class StepDescriptor:
             return self
 
         if instance in self.refs:
-            return self.refs[instance]
+            step = self.refs[instance]
+        else:
+            method = self.method.__get__(instance, owner)
+            self.refs[instance] = step = Step(instance, method)
 
-        ref = Step(instance, self.method.__get__(instance, owner))
-        self.refs[instance] = ref
-        return ref
+        return instance.__specs__['steps'](**{step.__name__: step})
 
 
 class Step:
@@ -322,22 +322,41 @@ class Step:
     """
 
     def __init__(self, model, method):
-        self.__self__ = model
+        self.model = self.__self__ = model
         self.method = method
-        self.__self__.__specs__.initialize(self)
+        self.model.__specs__.initialize(self)
+        self.impl
 
     @property
-    def __name__(self):
+    def hier(self):
+        """Hierarchy of super step calls."""
+        hier = []
+        step = self
+        while step:
+            hier.append(step)
+            step = step.steps.get(self.__name__)
+        return hier
+
+    @property
+    def name(self):
         """Return the name of the step."""
         return self.method.__name__
 
     @property
+    def component(self):
+        return self.method.__qualname__.rsplit('.', 1)[0]
+
+    __name__ = name
+
+    def __str__(self):
+        return f'@{self.method.__qualname__}'
+
+    def __repr__(self):
+        return f'Step({self.method.__qualname__} of {self.method.__self__!r})'
+
+    @property
     def impl(self):
         """Return the underlying implementation registered in the model."""
-        return self.__self__.__specs__['steps'].specs[self.__name__]
-
-    def __call__(self):
-        """Return the specs accessor of the step."""
         with self.__self__.__specs__.activate(self):
             impl = self.method()
             if not isinstance(impl, FunctionType):
@@ -348,11 +367,13 @@ class Step:
             impl.__self__ = self.__self__
             impl.__name__ = self.__name__
             impl.__step__ = self
+        return impl
 
-        return self.__self__.__specs__['steps'](**{self.__name__: impl})
+    def __call__(self):
+        """Return the specs accessor of the step."""
+        return self.impl
 
 
-# noinspection PyProtectedMember
 class Model:
     """Base for implementing a fast, compoable simulation model.
 
@@ -365,7 +386,6 @@ class Model:
     * `iterate` and `apply` will be called repeated according to the parameter
       `n_step`, where `iterate` works on individuals of the population, while
       `apply` works on the complete population.
-    * finally, a `finish` step is invoked with the complete population
 
     """
 
@@ -384,15 +404,16 @@ class Model:
 
         self.__setup__()
 
+    def __str__(self):
+        return f"{type(self).__name__}@{id(self):x}"
+
+    __repr__ = __str__
+
     def __setup__(self):
         """Register the basic layout of the model."""
-        self.params(n_samples=int)
-        self.params(n_steps=int)
-
-        self.init()
-        self.iterate()
-        self.apply()
-        self.finish()
+        self.init
+        self.iterate
+        self.apply
 
     def __getattr__(self, name):
         """Access state variables to trace them."""
@@ -427,7 +448,7 @@ class Model:
     @contextmanager
     def resolving(self, *, steps, state, params, random, derives):
         """Use the supplied function for resolving allocation in `Specs`."""
-        LOG.debug("resolving with {}, ...", steps)
+        LOG.debug(f"resolving with {steps}, ...")
         with self.steps.resolving(steps), \
                 self.state.resolving(state), \
                 self.params.resolving(params), \
@@ -435,34 +456,91 @@ class Model:
                 self.derives.resolving(derives):
             yield
 
-    def graph(self, **attrs):
+    def hier(self, **attrs):
+        gv = __import__("graphviz")
+        graph = gv.Digraph()
+        graph.attr(rankdir="BT")
+        graph.attr(**attrs)
+        graph.attr('node', shape='box')
+        graph.attr('edge', arrowhead='empty')
+
+        stack = [type(self)]
+        visited = set()
+
+        while stack:
+            cls, *stack = stack
+            bases = [base for base in cls.__bases__ if issubclass(base, Model)]
+            for base in bases:
+                graph.edge(cls.__qualname__, base.__qualname__)
+            stack.extend([base for base in bases if base not in visited])
+            visited.update(bases)
+        return graph
+
+    def graph(self, details=True, rankdir='LR', **attrs):
         """Create a grpahivz graph out of the steps call tree."""
         gv = __import__("graphviz")
-
         graph = gv.Digraph()
-        graph.attr(rankdir='LR')
+        graph.attr(rankdir=rankdir, compound='true')
+        graph.attr('edge', arrowhead='vee')
         graph.attr(**attrs)
 
-        with graph.subgraph() as g:
-            g.attr(rank='min')
-            g.edge('init', 'iterate')
-            g.edge('iterate', 'apply')
-            g.edge('apply', 'iterate', constraint='false')
-            g.edge('apply', 'finish')
+        with graph.subgraph() as core:
+            core.attr(rank='min', newrank='true')
+            core.attr('node', shape='point', style='invis')
+            core.attr('edge', style='invis')
 
-        for name, impl in self.steps.specs.items():
-            calls = [s for s in impl.__step__.steps if s != name]
-            while name in impl.__step__.steps:
-                impl = impl.__step__.steps[name]
-                calls.extend([s for s in impl.__step__.steps if s != name])
+            core.edge('_init', '_iterate')
+            core.edge('_iterate', '_apply')
+            core.edge('_apply', '_iterate', constraint='false')
 
-            with graph.subgraph() as g:
-                g.attr(rank='same')
-                for a, b in zip(calls, calls[1:]):
-                    g.edge(a, b, style='invis')
+        graph.edge('_init', str(self.init),
+                   lhead='cluster_init', minlen='2', weight='2')
+        graph.edge('_iterate', str(self.iterate),
+                   lhead='cluster_iterate', minlen='2', weight='2')
+        graph.edge('_apply', str(self.apply),
+                   lhead='cluster_apply', minlen='2', weight='2')
 
-            for c in calls:
-                graph.edge(name, c)
+        for node in self.steps.values():
+            with graph.subgraph(name=f'cluster_{node.__name__}') as s:
+                s.attr(label=f'<<B>@{node.__name__}</B>>', labeljust='l')
+                for sub in node.hier:
+                    if details:
+                        label = f'''<
+                        <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0">
+                        <TR><TD BGCOLOR="lightgrey"><B>{sub.component}</B></TD></TR><HR/>
+                        <TR><TD ALIGN="LEFT">state: {', '.join(sub.state)}</TD></TR>
+                        <TR><TD ALIGN="LEFT">params: {', '.join(sub.allocs)}</TD></TR>
+                        <TR><TD ALIGN="LEFT">random: {', '.join(sub.random)}</TD></TR>
+                        </TABLE>
+                        >'''
+                        s.node(str(sub), label=label, shape='plaintext')
+                    else:
+                        s.node(str(sub), label=sub.component, shape='box')
+
+                for a, b in zip(node.hier, node.hier[1:]):
+                    s.edge(f'{a}', f'{b}', minlen='1', weight='20')
+
+        for node in self.steps.values():
+            with graph.subgraph(name=f'calls_{node.__name__}') as s:
+                s.attr(rank='same')
+                for sub in node.hier:
+                    calls = [call
+                             for call in sub.steps.values()
+                             if call.__name__ != sub.name]
+                    for a, b in zip(calls, calls[1:]):
+                        s.edge(str(a), str(b), 
+                               minlen='1', 
+                               style='invis')
+
+            for sub in node.hier:
+                constraint = 'true'
+                for call in sub.steps.values():
+                    if call.__name__ != sub.name:
+                        graph.edge(str(sub), str(call),
+                                   minlen='2',
+                                   constraint=constraint,
+                                   lhead=f'cluster_{call.__name__}')
+                        constraint = 'false'
 
         return graph
 
@@ -483,7 +561,7 @@ class Model:
         def annotate(fn):
             name = '{}({})'.format(fn.__name__, ','.join(deps))
 
-            LOG.debug("derive on {} using {}", name, deps)
+            LOG.debug(f"derive on {name} using {deps}")
             self.allocs(**deps)
             return self.derives(**{name: (fn, deps)})
         return annotate
@@ -498,6 +576,7 @@ class Model:
                 the implementation function accepting params and state args
 
         """
+        _ = self.params(n_samples=int)
         def impl(_, __):
             pass
         return impl
@@ -512,6 +591,7 @@ class Model:
                 the implementation function accepting params and state args
 
         """
+        _ = self.params(n_steps=int)
         def impl(_, __):
             pass
         return impl
@@ -530,16 +610,3 @@ class Model:
             pass
         return impl
 
-    @step
-    def finish(self):
-        """Return an implementation finalizes the complete population.
-
-        Returns
-        -------
-             impl(params, state)
-                the implementation function accepting params and state args
-
-        """
-        def impl(_, __):
-            pass
-        return impl

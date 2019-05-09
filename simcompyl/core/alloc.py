@@ -155,14 +155,14 @@ class Alloc:
 
     def update(self, value):
         """Update the current value notifying subscribers about the change."""
-        LOG.debug("param update of {} to {}", self.name, value)
+        LOG.debug(f"param update of {self.name} to {value}")
 
         # TODO validation of values
         prev, self.value = self.value, value
 
         if prev != value:
             for sub in self.subscribers:
-                LOG.debug("... notifying {}", sub)
+                LOG.debug(f"... notifying {sub}")
                 sub(self.name, prev, value)
 
     def reset(self):
@@ -175,7 +175,7 @@ class Alloc:
             msg = "Callback object should be callable, not a {}."
             raise TypeError(msg.format(type(callback).__name__))
 
-        LOG.info("param subscription on {} to {}", self.name, callback)
+        LOG.info(f"param subscription on {self.name} to {callback}")
 
         try:
             signature(callback).bind('', None, None)
@@ -189,12 +189,10 @@ class Alloc:
         """Remove a `callback(name, old, new)` from being notified."""
         try:
             idx = self.subscribers.index(callback)
-            LOG.info("param unsubscription on {} of {}",
-                     self.name, callback)
+            LOG.info(f"param unsubscription on {self.name} of {callback}")
             return self.subscribers.pop(idx)
         except ValueError:
-            LOG.warning("param unsubscription on {} not possible for {}",
-                        self.name, callback)
+            LOG.warning(f"param {self.name} not subscribed for {callback}")
             return None
 
     def __str__(self):
@@ -224,13 +222,13 @@ class Allocation:
         """Temporarily set some parameter values inside a context."""
         vals = {}
         try:
-            LOG.info("creating context allocation {}", kws)
+            LOG.info(f"creating context allocation {kws}")
             for name, value in kws.items():
                 vals[name] = getattr(self, name).value
                 setattr(self, name, value)
             yield self
         finally:
-            LOG.info("restoring context allocation {}", vals)
+            LOG.info(f"restoring context allocation {vals}")
             for name, value in vals.items():
                 setattr(self, name, value)
 
@@ -309,7 +307,7 @@ class CombinedAllocation(Allocation):
     """A combination of other allocation objects."""
 
     def __init__(self, *bases):
-        LOG.info("combining allocations {}", ' + '.join(map(str, bases)))
+        LOG.info(f"combining allocations {', '.join(map(str, bases))}")
         super().__init__()
 
         conflicts = set()
@@ -344,7 +342,7 @@ class CombinedAllocation(Allocation):
         if not name.startswith('_'):
             for alloc in self._bases:
                 if hasattr(alloc, name):
-                    LOG.debug("setting combined {} on {}", name, alloc)
+                    LOG.debug(f"setting combined {name} on {alloc}")
                     return setattr(alloc, name, value)
 
         return super().__setattr__(name, value)
@@ -352,7 +350,7 @@ class CombinedAllocation(Allocation):
     def __delattr__(self, name):
         for alloc in self._bases:
             if hasattr(alloc, name):
-                LOG.debug("resetting combined {} on {}", name, alloc)
+                LOG.debug(f"resetting combined {name} on {alloc}")
                 return delattr(alloc, name)
 
         return super().__delattr__(name)

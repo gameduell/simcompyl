@@ -32,6 +32,7 @@ disable=parameter-unpacking,
         unpacking-in-except,
         backtick,
         locally-disabled,
+        logging-fstring-interpolation,
         file-ignored,
         suppressed-message,
         useless-suppression,
@@ -144,8 +145,8 @@ check-str-concat-over-line-jumps=no
 
 
 [LOGGING]
-logging-format-style=new
 logging-modules=logging
+logging-format-style=old
 
 
 [BASIC]

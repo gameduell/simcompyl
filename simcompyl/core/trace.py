@@ -62,12 +62,12 @@ class Trace:
         """Create a new trace."""
         if cls == Trace and not args:
             if all(isinstance(v, (type, list)) for v in kws.values()):
-                LOG.debug("trace creates as State for {}", kws)
+                LOG.debug(f"trace creates as State for {kws}")
                 return State(**kws)
 
             if all(hasattr(v, '__call__') and not isinstance(v, type)
                    for v in kws.values()):
-                LOG.debug("trace creates as Assign for {}", kws)
+                LOG.debug(f"trace creates as Assign for {kws}", kws)
                 return Assign(**kws)
 
             msg = "Expecting a state spec or assignments as keywords."
@@ -86,8 +86,7 @@ class Trace:
                 name = sources[0].name
 
         name = name or (columns[0] if len(columns) == 1 else 'value')
-        LOG.debug("trace initialized tracing {} {} from {}",
-                  columns, name, sources)
+        LOG.debug(f"trace initialized tracing {columns} {name} from {sources}")
         self.name = name
         self.sources = sources
         self.index = index
@@ -160,7 +159,7 @@ class Trace:
         if isinstance(item, Trace):
             return Filter(self, item)
 
-        msg = "Getting item with a {}".format(type(item))
+        msg = "Getting item with a {type(item).__name__}"
         raise NotImplementedError(msg)
 
     __eq__ = _defop(operator.eq)
@@ -664,8 +663,8 @@ class Tracer:
         else:
             df = pd.DataFrame(0, index=idx, columns=columns)
 
-        LOG.debug("created {}-frame of {:d} traces for {}",
-                  'x'.join(str(n) for n in df.shape), len(traces), self)
+        LOG.debug(f"created %s-frame of {len(traces):d} traces for {self}",
+                  'x'.join(str(n) for n in df.shape))
 
         return df
 
@@ -747,7 +746,7 @@ class Holotrace(Tracer):
 
     def push(self):
         """Push remaining traces towards the holoviews buffer."""
-        LOG.debug("{} pushes {:d} traces.", self, len(self.traces))
+        LOG.debug(f"{self} pushes {len(self.traces):d} traces.")
         if self.traces:
             df = self.frame(self.idxs, self.traces, offset=self.offset)
 
