@@ -6,6 +6,7 @@ import time
 
 
 class Foobar(sim.Model):
+    @sim.step
     def iterate(self):
         rnd = self.random(a=bool, b=int, c=float)
 
@@ -149,7 +150,7 @@ def test_numba():
     model.state(nil=int)
     alloc = FooAlloc()
 
-    exec = sim.Execution(model, alloc)
+    exec = sim.engine.NumbaExecution(model, alloc)
 
     a = time.time()
     exec.run()

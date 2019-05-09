@@ -15,7 +15,7 @@ def test_base():
     class Foo(Base):
         @sim.step
         def foo(self):
-            bar = self.bar()
+            bar = self.bar.impl
             self.other(foo='Foo')
 
             def impl(trace):
@@ -57,16 +57,14 @@ def test_base():
     assert foo.foo.__name__ == 'foo'
     assert foo.bar.__name__ == 'bar'
 
-    impl = foo.foo()
-    assert impl == foo.Foo_foo_impl
     assert foo.foo.impl == foo.Foo_foo_impl
-    assert foo.foo.steps == {'bar': foo.Foo_bar_impl}
+    assert foo.foo.steps == {'bar': foo.bar}
 
     assert foo.foo.other == {'foo': 'Foo'}
     assert dict(foo.other) == {'foo': 'Foo'}
 
     trace = []
-    impl(trace)
+    foo.foo.impl(trace)
     assert trace == [(Foo, foo, 'foo'),
                      (Foo, foo, 'bar')]
 
@@ -77,7 +75,7 @@ def test_base():
     impl = bar.foo()
     assert impl == bar.Foo_foo_impl
     assert bar.foo.impl == bar.Foo_foo_impl
-    assert bar.foo.steps == {'bar': bar.Bar_bar_impl}
+    assert bar.foo.steps == {'bar': bar.bar}
 
     assert bar.foo.other == {'foo': 'Foo'}
     assert bar.bar.other == {'bar': 'Bar'}
@@ -99,4 +97,4 @@ def test_fails():
     foo = Foo()
 
     with pytest.raises(TypeError):
-        foo.foo()
+        foo.foo.impl
