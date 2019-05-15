@@ -5,6 +5,7 @@ from collections import namedtuple
 from contextlib import contextmanager, ExitStack
 from functools import wraps
 from types import FunctionType
+import numpy as np
 
 import logging
 
@@ -415,14 +416,6 @@ class Model:
         self.iterate
         self.apply
 
-    def __getattr__(self, name):
-        """Access state variables to trace them."""
-        if name in self.state:
-            return self[name]
-
-        raise AttributeError('{!r} object has no attribute {!r}.'
-                             .format(type(self).__name__, name))
-
     def __dir__(self):
         """List state keys as well."""
         return list(super().__dir__()) + list(self.state)
@@ -476,9 +469,15 @@ class Model:
             visited.update(bases)
         return graph
 
-    def graph(self, details=True, rankdir='LR', **attrs):
+    def graph(self, details=True, rankdir='LR', show_internals=False, cm='Set3_r', **attrs):
         """Create a grpahivz graph out of the steps call tree."""
         gv = __import__("graphviz")
+        mp = __import__("matplotlib")
+
+        hier = [t for t in type(self).mro() if issubclass(t, Model)]
+        n = len(hier)
+        colors = {t.__qualname__: getattr(mp.cm, cm)(i/n, bytes=True) for i, t in enumerate(hier)}
+
         graph = gv.Digraph()
         graph.attr(rankdir=rankdir, compound='true')
         graph.attr('edge', arrowhead='vee')
@@ -505,9 +504,10 @@ class Model:
                 s.attr(label=f'<<B>@{node.__name__}</B>>', labeljust='l')
                 for sub in node.hier:
                     if details:
+                        c = colors[sub.component]
                         label = f'''<
                         <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0">
-                        <TR><TD BGCOLOR="lightgrey"><B>{sub.component}</B></TD></TR><HR/>
+                        <TR><TD BGCOLOR="#{c[0]:02x}{c[1]:02x}{c[2]:02x}"><B>{sub.component}</B></TD></TR><HR/>
                         <TR><TD ALIGN="LEFT">state: {', '.join(sub.state)}</TD></TR>
                         <TR><TD ALIGN="LEFT">params: {', '.join(sub.allocs)}</TD></TR>
                         <TR><TD ALIGN="LEFT">random: {', '.join(sub.random)}</TD></TR>
@@ -521,16 +521,21 @@ class Model:
                     s.edge(f'{a}', f'{b}', minlen='1', weight='20')
 
         for node in self.steps.values():
-            with graph.subgraph(name=f'calls_{node.__name__}') as s:
-                s.attr(rank='same')
-                for sub in node.hier:
-                    calls = [call
-                             for call in sub.steps.values()
-                             if call.__name__ != sub.name]
+            calls = []
+            stack = list(node.steps.values())
+            while stack:
+                call, *stack = stack
+                if call.__name__ == node.__name__:
+                    stack = list(call.steps.values()) + stack
+                else:
+                    calls.append(call)
+
+            opts = {'color': 'grey'} if show_internals else {'style': 'invis'}
+            if len(calls) > 1:
+                with graph.subgraph(name=f'calls_{node.__name__}') as s:
+                    #s.attr(rank='same')
                     for a, b in zip(calls, calls[1:]):
-                        s.edge(str(a), str(b), 
-                               minlen='1', 
-                               style='invis')
+                        s.edge(str(a), str(b), minlen='1', **opts)
 
             for sub in node.hier:
                 constraint = 'true'
@@ -540,7 +545,7 @@ class Model:
                                    minlen='2',
                                    constraint=constraint,
                                    lhead=f'cluster_{call.__name__}')
-                        constraint = 'false'
+                        #constraint = 'false'
 
         return graph
 
