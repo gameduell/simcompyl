@@ -38,7 +38,7 @@ def test_resolve():
 
     a_ = specs(a=0)
 
-    with specs.resolving(custom):
+    with specs.binding(custom):
         b = specs(b=1)
         a = specs(a=...)
         c = specs(c=2)

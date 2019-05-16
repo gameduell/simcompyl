@@ -159,7 +159,7 @@ def test_numba():
     c = time.time()
     assert (b - a) > (c - b) * 5
 
-    tr = model.nil.mean()
+    tr = model['nil'].mean()
     a = time.time()
     with exec.trace(tr) as fst:
         exec.run()

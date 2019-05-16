@@ -95,11 +95,11 @@ def test_specs():
             return spec
         return resolve
 
-    with mdl.resolving(steps=trace('steps'),
-                       state=trace('state'),
-                       params=trace('params'),
-                       random=trace('random'),
-                       derives=trace('derived')):
+    with mdl.binding(steps=trace('steps'),
+                     state=trace('state'),
+                     params=trace('params'),
+                     random=trace('random'),
+                     derives=trace('derived')):
         mdl.steps(init=...)
         mdl.state(foo=...)
         mdl.params(foo=...)
@@ -115,9 +115,9 @@ def test_graph():
     class Test(sim.Model):
         @sim.step
         def iterate(self):
-            _iter = super().iterate()
-            _foo = self.foo()
-            _bar = self.bar()
+            _iter = super().iterate
+            _foo = self.foo
+            _bar = self.bar
 
             def impl(params, state):
                 _iter(params, state)

@@ -33,7 +33,7 @@ class Specs(Resolvable):
 
     Moreover, the call will return accessors according to the spec that can be
     used during the execution of the simulation. This is archived by letting
-    the execution engine register itself inside the `resolving` context and
+    the execution engine register itself inside the `binding` context and
     giving control to the engine to create the accessor.
     """
 
@@ -42,7 +42,6 @@ class Specs(Resolvable):
         self.specs = {}
         self._name = name
         self._collect = collect
-        self._resolve = None
         self._activated = [{}]
 
     def __contains__(self, name):
@@ -305,12 +304,12 @@ class StepDescriptor:
             return self
 
         if instance in self.refs:
-            step = self.refs[instance]
+            result = self.refs[instance]
         else:
             method = self.method.__get__(instance, owner)
-            self.refs[instance] = step = Step(instance, method)
+            self.refs[instance] = result = Step(instance, method)
 
-        return instance.__specs__['steps'](**{step.__name__: step})
+        return instance.steps(**{result.__name__: result})
 
 
 class Step:
@@ -349,12 +348,6 @@ class Step:
 
     __name__ = name
 
-    def __str__(self):
-        return f'@{self.method.__qualname__}'
-
-    def __repr__(self):
-        return f'Step({self.method.__qualname__} of {self.method.__self__!r})'
-
     @property
     def impl(self):
         """Return the underlying implementation registered in the model."""
@@ -370,9 +363,15 @@ class Step:
             impl.__step__ = self
         return impl
 
-    def __call__(self):
-        """Return the specs accessor of the step."""
-        return self.impl
+    def __call__():
+        """We are a pseudo-function."""
+        raise TypeError("Steps should not be called directly.")
+
+    def __str__(self):
+        return f'@{self.method.__qualname__}'
+
+    def __repr__(self):
+        return f'Step({self.method.__qualname__} of {self.method.__self__!r})'
 
 
 class Model:
@@ -439,14 +438,14 @@ class Model:
         return list(self.state)
 
     @contextmanager
-    def resolving(self, *, steps, state, params, random, derives):
-        """Use the supplied function for resolving allocation in `Specs`."""
-        LOG.debug(f"resolving with {steps}, ...")
-        with self.steps.resolving(steps), \
-                self.state.resolving(state), \
-                self.params.resolving(params), \
-                self.random.resolving(random), \
-                self.derives.resolving(derives):
+    def binding(self, *, steps, state, params, random, derives):
+        """Use the supplied function for binding allocation in `Specs`."""
+        LOG.debug(f"resolving by binding {steps}, ...")
+        with self.steps.binding(steps), \
+                self.state.binding(state), \
+                self.params.binding(params), \
+                self.random.binding(random), \
+                self.derives.binding(derives):
             yield
 
     def hier(self, **attrs):
@@ -469,14 +468,15 @@ class Model:
             visited.update(bases)
         return graph
 
-    def graph(self, details=True, rankdir='LR', show_internals=False, cm='Set3_r', **attrs):
+    def graph(self, details=True, rankdir='LR', cm='Pastel2', internals=False,
+              **attrs):
         """Create a grpahivz graph out of the steps call tree."""
         gv = __import__("graphviz")
         mp = __import__("matplotlib")
 
         hier = [t for t in type(self).mro() if issubclass(t, Model)]
-        n = len(hier)
-        colors = {t.__qualname__: getattr(mp.cm, cm)(i/n, bytes=True) for i, t in enumerate(hier)}
+        colors = {t.__qualname__: getattr(mp.cm, cm)(i/len(hier), bytes=True)
+                  for i, t in enumerate(hier)}
 
         graph = gv.Digraph()
         graph.attr(rankdir=rankdir, compound='true')
@@ -530,7 +530,7 @@ class Model:
                 else:
                     calls.append(call)
 
-            opts = {'color': 'grey'} if show_internals else {'style': 'invis'}
+            opts = {'color': 'grey'} if internals else {'style': 'invis'}
             if len(calls) > 1:
                 with graph.subgraph(name=f'calls_{node.__name__}') as s:
                     #s.attr(rank='same')
@@ -614,4 +614,3 @@ class Model:
         def impl(_, __):
             pass
         return impl
-

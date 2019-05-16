@@ -96,7 +96,7 @@ def test_tracing(engine):
     assert_frame_equal(td.grow.unstack().diff()[1:],
                        td.const.unstack()[1:])
 
-    mr = (2 * model.grow - model.alt).naming('math')
+    mr = (2 * model['grow'] - model['alt']).naming('math')
     with exec.trace(mr.take(6), tr.take(6)) as (md, td):
         exec.run()
     assert md.shape == (21 * 6, 1)
@@ -125,7 +125,7 @@ def test_tracing(engine):
     assert (fd.alt > 0).all(None)
 
 
-    cr = tr[model.const >= model.alt]
+    cr = tr[model['const'] >= model['alt']]
     with exec.trace(cr.mean()) as cd:
         exec.run()
 
@@ -206,9 +206,6 @@ def test_invalids():
     model = Generate()
     with pytest.raises(KeyError):
         model['alt', 'nil']
-
-    with pytest.raises(AttributeError):
-        model.nil
 
 
 def test_holoview():

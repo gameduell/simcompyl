@@ -52,8 +52,8 @@ class BasicExecution:
 
         ctx = TraceContext(self)
 
-        LOG.debug(f"engine resolving trace {trace}")
-        with self.resolving():
+        LOG.debug(f"engine resolves trace {trace}")
+        with self.binding():
             cc = self.compile(ctx.resolve_function(trace.trace(ctx)),
                               vectorize=False)
         self.trace_cache[trace.__freeze__()] = cc
@@ -83,48 +83,49 @@ class BasicExecution:
             def trace(_, __):
                 pass
 
-        LOG.info(f"engine initializes {self.model}")
+        LOG.info(f"engine initializes {self.model} simultion")
         init(params, state)
         trace(params, state)
 
-        LOG.info(f"engine iterates {self.model}")
+        LOG.info(f"engine iterates {self.model} simultion")
         for _ in range(self.alloc.n_steps.value):
             iterate(params, state)
             apply(params, state)
             trace(params, state)
+        LOG.info(f"engine finished {self.model} simultion")
 
         return self.frame(state)
 
     @contextmanager
-    def resolving(self):
+    def binding(self):
         """Context where this engine should resolve accessors of the model."""
         LOG.debug(f"engine registers itself as resolver for {self.model}")
-        with self.model.resolving(steps=self.resolve_steps,
-                                  state=self.resolve_state,
-                                  params=self.resolve_params,
-                                  random=self.resolve_random,
-                                  derives=self.resolve_derives):
+        with self.model.binding(steps=self.resolve_steps,
+                                state=self.resolve_state,
+                                params=self.resolve_params,
+                                random=self.resolve_random,
+                                derives=self.resolve_derives):
             yield
 
     @lazy
     def init(self):
         """Cache of the initialization of the model."""
         LOG.debug(f"engine resolves {self.model.init}")
-        with self.resolving():
+        with self.binding():
             return self.compile(self.model.init, vectorize=True)
 
     @lazy
     def iterate(self):
         """Cache of the iteration of the model."""
         LOG.debug(f"engine resolves {self.model.iterate}")
-        with self.resolving():
+        with self.binding():
             return self.compile(self.model.iterate, vectorize=True)
 
     @lazy
     def apply(self):
         """Cache of the application of the model."""
         LOG.debug(f"engine resolves {self.model.apply}")
-        with self.resolving():
+        with self.binding():
             return self.compile(self.model.apply, vectorize=False)
 
     def params(self):
@@ -269,7 +270,7 @@ class NumbaExecution(BasicExecution):
                            nopython=nopython,
                            parallel=parallel)
                 def vect(params, state):
-                    for i in nb.prange(len(state)):
+                    for i in nb.prange(len(state)): # pylint: disable=E1133
                         impl(params, state[i])
                 return vect
             return vectorize
@@ -281,7 +282,8 @@ class NumbaExecution(BasicExecution):
                    "perhaps you forgot the @sim.step decorator")
             raise AttributeError(msg.format(impl))
 
-        LOG.info(f"engine compiles {impl.py_func.__name__} (vectorize={vectorize})")
+        LOG.info(f"engine compiles {impl.py_func.__name__}"
+                 "(vectorize={vectorize})")
         if vectorize:
             return self.vjit([(nb.float64[:], nb.float64[:])], '(m),(n)',
                              fastmath=self.fastmath,

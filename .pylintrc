@@ -181,7 +181,8 @@ module-naming-style=snake_case
 # the name regexes allow several styles.
 name-group=
 property-classes=abc.abstractproperty,
-                 simcompyl.core.util.lazy
+                 simcompyl.core.util.lazy,
+                 simcompyl.core.model.step
 variable-naming-style=any
 
 [SIMILARITIES]

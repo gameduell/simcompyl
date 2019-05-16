@@ -8,7 +8,7 @@ class Base:
     def __init__(self):
         self.__specs__ = SpecsCollection(steps=Specs('steps'),
                                          other=Specs('other'))
-        self._steps, self.other = self.__specs__.values()
+        self.steps, self.other = self.__specs__.values()
 
 
 def test_base():
@@ -36,7 +36,7 @@ def test_base():
     class Bar(Foo):
         @sim.step
         def bar(self):
-            _bar = super().bar()
+            _bar = super().bar.impl
             self.other(bar='Bar')
 
             def impl(trace):
@@ -72,7 +72,7 @@ def test_base():
     assert isinstance(foo.foo, Step)
     assert isinstance(foo.bar, Step)
 
-    impl = bar.foo()
+    impl = bar.foo.impl
     assert impl == bar.Foo_foo_impl
     assert bar.foo.impl == bar.Foo_foo_impl
     assert bar.foo.steps == {'bar': bar.bar}
