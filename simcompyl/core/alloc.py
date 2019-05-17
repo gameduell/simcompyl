@@ -416,6 +416,8 @@ class Uniform(Distribution):
     def sample(self):
         """Get sampling method for the uniform distribution."""
         def impl(low, high):
+            if low == high:
+                return low
             return np.random.randint(low, high)
         return impl
 

@@ -175,7 +175,7 @@ class BasicExecution:
         if isinstance(typ, dict):
             def define(key):
                 def dct_getter(params):
-                    return getattr(params, name).value[key]
+                    return np.array(getattr(params, name).value[key])
                 return dct_getter
 
             Getters = namedtuple('Getters', list(typ))
@@ -283,7 +283,7 @@ class NumbaExecution(BasicExecution):
             raise AttributeError(msg.format(impl))
 
         LOG.info(f"engine compiles {impl.py_func.__name__}"
-                 "(vectorize={vectorize})")
+                 f"(vectorize={vectorize})")
         if vectorize:
             return self.vjit([(nb.float64[:], nb.float64[:])], '(m),(n)',
                              fastmath=self.fastmath,

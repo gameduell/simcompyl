@@ -542,7 +542,7 @@ class Model:
                 for call in sub.steps.values():
                     if call.__name__ != sub.name:
                         graph.edge(str(sub), str(call),
-                                   minlen='2',
+                                   minlen='1',
                                    constraint=constraint,
                                    lhead=f'cluster_{call.__name__}')
                         #constraint = 'false'
