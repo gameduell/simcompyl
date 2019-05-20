@@ -24,11 +24,13 @@ class Walk(sim.Model):
         y : float
             y coordinate of samples
         """
+        _init = super().init
         # bind indieces that can access specific parts of the state
         x = self.state(x=float)
         y = self.state(y=float)
 
         def impl(params, state):
+            _init(params, state)
             state[x] = 0
             state[y] = 0
 
@@ -44,8 +46,8 @@ class Walk(sim.Model):
             step performing the actual walk
         """
         # get a binding to a sub-step
-        _walk = self.walk()
-        _iterate = super().iterate()
+        _iterate = super().iterate
+        _walk = self.walk
 
         def iterate(params, state):
             _iterate(params, state)
@@ -127,7 +129,7 @@ class Spawn(Walk):
         rx, ry = self.random(initial_x=float, initial_y=float)
 
         # get binding to a step method of the super() object
-        _init = super().init()
+        _init = super().init
 
         def impl(params, state):
             # so now we can refere to the super implementation
@@ -162,7 +164,7 @@ class Energy(Walk):
         ie = self.random(initial_energy=float)
 
         # bind to super method
-        _init = super().init()
+        _init = super().init
 
         def impl(params, state):
             _init(params, state)
@@ -195,7 +197,7 @@ class Energy(Walk):
         e = self.state(energy=...)
 
         # bind to super method
-        _walk = super().walk()
+        _walk = super().walk
 
         def impl(params, state):
             if state[e] < 0:
@@ -209,7 +211,7 @@ class Energy(Walk):
         return impl
 
 
-class ComplexWalk(Energy, Spawn, Walk):
+class ComplexWalk(Energy, Spawn):
     """Composition of Energy ans Spawn extension for the random Walk."""
 
     pass

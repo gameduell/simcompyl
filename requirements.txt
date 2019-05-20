@@ -5,3 +5,4 @@ holoviews>=1.11
 panel>=0.3
 bokeh>=1.0
 graphviz>=0.10
+matplotlib>=3.0.0
