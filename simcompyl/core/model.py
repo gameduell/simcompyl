@@ -363,7 +363,7 @@ class Step:
             impl.__step__ = self
         return impl
 
-    def __call__():
+    def __call__(self):
         """We are a pseudo-function."""
         raise TypeError("Steps should not be called directly.")
 

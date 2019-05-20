@@ -21,6 +21,11 @@ def test_basics():
     mdl.iterate.impl(None, None)
     mdl.apply.impl(None, None)
 
+    with pytest.raises(TypeError):
+        mdl.init()
+
+    assert 'Model.apply' in repr(mdl.apply)
+
 
 def test_specs():
     mdl = sim.Model()
@@ -141,8 +146,16 @@ def test_graph():
                 pass
             return impl
 
-    graph = Test().graph(rankdir='TD')
+    hier = Test().hier()
 
+    # TODO really test creation of model hierary
+    assert hier
+
+    graph = Test().graph(rankdir='TD')
+    # TODO really test creation of flow-graph
+    assert graph
+
+    graph = Test().graph(rankdir='LR', internals=True, details=False)
     # TODO really test creation of flow-graph
     assert graph
 
