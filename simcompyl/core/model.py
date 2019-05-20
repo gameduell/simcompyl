@@ -472,7 +472,7 @@ class Model:
               **attrs):
         """Create a grpahivz graph out of the steps call tree."""
         gv = __import__("graphviz")
-        mp = __import__("matplotlib")
+        mp = __import__("matplotlib.cm")
 
         hier = [t for t in type(self).mro() if issubclass(t, Model)]
         colors = {t.__qualname__: getattr(mp.cm, cm)(i/len(hier), bytes=True)
