@@ -30,6 +30,26 @@ def test_execute(engine):
     assert len(out.query('energy <= 0')) < limit
 
 
+def test_nontracing():
+    from . import walk
+
+    model = walk.ComplexWalk()
+    alloc = walk.Simulation() + walk.BasicDistance()
+
+    exec = sim.engine.NonTracingNumbaEngine(model, alloc)
+
+    out = exec.run(initial_energy=10)
+
+    limit = alloc.n_samples.value / 4
+
+    assert set(out.columns) == {'x', 'y', 'energy'}
+    assert len(out.query('x**2 + y**2 < 10**2')) > limit
+    assert len(out.query('energy <= 0')) > limit
+
+    out = exec.run()
+    assert len(out.query('energy <= 0')) < limit
+
+
 def test_tracing(engine):
     from . import walk
 

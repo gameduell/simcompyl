@@ -261,13 +261,13 @@ class NumbaExecution(BasicExecution):
                                   target='parallel' if parallel else 'cpu')
         else:
             def vectorize(impl):
+                impl = self.njit(impl)
                 ext = [tuple(dt.dtype[:, :] if i == 1 else dt
                              for i, dt in enumerate(dts))
                        for dts in dtypes]
 
                 @self.njit(ext,
                            fastmath=fastmath,
-                           nopython=nopython,
                            parallel=parallel)
                 def vect(params, state):
                     for i in nb.prange(len(state)): # pylint: disable=E1133
@@ -532,6 +532,45 @@ class PseudoNumbaExecution(NumbaExecution):
             return self.vjit([()], None)(impl)
         else:
             return self.njit(impl)
+
+
+class NonTracingNumbaEngine(NumbaExecution):
+    def __init__(self, model, alloc):
+        super().__init__(model, alloc, use_gufunc=False)
+
+    @lazy
+    def loop(self):
+        if self.traces:
+            raise ValueError(f"Can't run {type(self).__name__} with traces!")
+
+        init = self.init
+        iterate = self.iterate
+        apply = self.apply
+
+        steps = self.alloc.n_steps.value
+
+        @nb.njit
+        def loop(params, state):
+            init(params, state)
+            for _ in range(steps):
+                iterate(params, state)
+                apply(params, state)
+            return state
+
+        with self.binding():
+            return self.compile(loop, vectorize=False)
+
+    def run(self, **allocs):
+        if allocs:
+            with self.alloc(**allocs):
+                return self.run()
+
+        params = self.params()
+        state = self.state()
+
+        state = self.loop(params, state)
+
+        return self.frame(state)
 
 
 DefaultExecution = Execution = NumbaExecution
