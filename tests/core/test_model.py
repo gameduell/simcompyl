@@ -146,6 +146,15 @@ def test_graph():
                 pass
             return impl
 
+    test = Test()
+
+    vis = sim.visual.Visualize(test)
+
+    vis.hier
+    vis.graph(rankdir='TD')
+    vis.graph(rankdir='LR', internals=True, details=False)
+
+
     hier = Test().hier()
 
     # TODO really test creation of model hierary
