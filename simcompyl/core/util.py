@@ -2,11 +2,15 @@
 import functools
 import weakref
 from contextlib import contextmanager
+import logging
+
+LOG = logging.getLogger(__name__)
 
 __all__ = ['lazy', 'Resolvable']
 
 
 class LazyDescriptor:
+    """Descriptor for @lazy attributes."""
     def __init__(self, method):
         self.method = method
         self.refs = weakref.WeakKeyDictionary()
@@ -43,6 +47,7 @@ def lazy(method):
 
 
 class Unresolved:
+    """Unresolved object that can be used for lazy specs."""
     def __init__(self, *args, **kws):
         self.args = args
         self.kws = kws
@@ -61,27 +66,41 @@ class Unresolved:
 
 
 class Resolvable:
-    """Mixin with resolving behaviour.
+    """Mixin with contextual resolving behaviour.
 
-    This objects lets will bind a `resolver` inside a `resolving` context,
+    It lets you bind a `resolver` inside a `resolving` context,
     that can be later used to `resolve` things.
 
     If no `resolver` is bound, it will return the result of the `unresolved`
     method, normally an instance of the `Unresolved` class.
+
+    >>> res.resolve('name')
+        Unresolved('name')
+
+    >>> with res.binding(dynamic.resolve):
+    ...     res.reslove('name')
+        Dynamic('name')
+
+    >>> res.resolve('name')
+        Unresolved('name')
     """
     _resolver = None
 
     def resolve(self, *args, **kws):
+        """Use the current resolver to resolve or call to unresolved."""
         if self._resolver is None:
             return self.unresolved(*args, **kws)
         else:
             return self._resolver(*args, **kws)
 
     def unresolved(self, *args, **kws):
+        """Returns an unresolved object."""
         return Unresolved(*args, **kws)
 
     @contextmanager
-    def resolving(self, resolver):
+    def binding(self, resolver):
+        """Context in which a resolver is bound."""
+        LOG.debug(f"resolving for {self} with {resolver}", self, resolver)
         self._resolver = resolver
         try:
             yield

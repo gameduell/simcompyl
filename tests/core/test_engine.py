@@ -2,9 +2,11 @@ import simcompyl as sim
 
 from collections import Counter
 import pytest
+import time
 
 
 class Foobar(sim.Model):
+    @sim.step
     def iterate(self):
         rnd = self.random(a=bool, b=int, c=float)
 
@@ -125,10 +127,9 @@ def test_resolving(engine):
 
     dmulti = exec.resolve_derives("dmulti(baz)",
                                   model.derives['dmulti(baz)'])
-    assert ([list(m)
-             for m in dmulti(params)] == [[a*b
-                                           for b in alloc.baz.value['b']]
-                                          for a in alloc.baz.value['a']])
+    assert ([list(m) for m in dmulti(params)] ==
+            [[a*b for b in alloc.baz.value['b']]
+             for a in alloc.baz.value['a']])
 
 
 def test_misc():
@@ -138,7 +139,7 @@ def test_misc():
     exec = sim.Execution(model, alloc)
 
     def foo():
-        pass
+        """noop."""
 
     with pytest.raises(AttributeError):
         exec.compile(foo)
@@ -146,7 +147,29 @@ def test_misc():
 
 def test_numba():
     model = sim.Model()
+    model.state(nil=int)
     alloc = FooAlloc()
 
-    exec = sim.Execution(model, alloc)
+    exec = sim.engine.NumbaExecution(model, alloc)
+
+    a = time.time()
     exec.run()
+    b = time.time()
+    exec.run()
+    c = time.time()
+    assert (b - a) > (c - b) * 5
+
+    tr = model['nil'].mean()
+    a = time.time()
+    with exec.trace(tr) as fst:
+        exec.run()
+    b = time.time()
+    with exec.trace(tr) as snd:
+        exec.run()
+    c = time.time()
+
+    assert fst.shape == (5, 1)
+    assert snd.shape == (5, 1)
+
+    assert (b - a) > (c - b) * 5
+

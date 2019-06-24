@@ -1,54 +1,66 @@
 """Engine actually executes the simulations code."""
+from collections import namedtuple
+from contextlib import contextmanager
+import logging
 
 import numba as nb
 import numpy as np
 import pandas as pd
 
-from collections import namedtuple
-from contextlib import contextmanager
-
 from .util import lazy
 from .trace import Trace
+
+
+LOG = logging.getLogger(__name__)
 
 
 class BasicExecution:
     """Engine to execute a simulation defined by a model."""
 
+
     def __init__(self, model, alloc):
         self.model = model
         self.alloc = alloc
         self.traces = []
+        self.trace_cache = {}
 
     @contextmanager
     def trace(self, *traces, target=None, **options):
         """Activate given traces."""
+        LOG.debug(f"engine activates traces {traces} to {target or 'default'}")
+
         traces = [tr.to(target, **options) if isinstance(tr, Trace) else tr
                   for tr in traces]
-        self.traces.extend(traces)
 
+        self.traces.extend(traces)
         try:
             yield (traces[0].prepare()
                    if len(traces) == 1
                    else [tr.prepare() for tr in traces])
 
         finally:
+            LOG.debug(f"engine deactivates traces {traces}")
             for tr in traces:
                 tr.finalize()
-        self.traces = self.traces[:-len(traces)]
+            self.traces = self.traces[:-len(traces)]
 
-    # @lru_cache()
     def tracing(self, trace):
         """Cache of a trace method."""
+        if trace.__freeze__() in self.trace_cache:
+            LOG.debug(f"engine cached trace {trace}")
+            return self.trace_cache[trace.__freeze__()]
+
         ctx = TraceContext(self)
 
-        with self.resolving():
-            return self.compile(ctx.resolve_function(trace.trace(ctx)),
-                                vectorize=False)
+        LOG.debug(f"engine resolves trace {trace}")
+        with self.binding():
+            cc = self.compile(ctx.resolve_function(trace.trace(ctx)),
+                              vectorize=False)
+        self.trace_cache[trace.__freeze__()] = cc
+        return cc
 
     def run(self, **allocs):
         """Execute the model."""
-        # TODO more doc
-
         if allocs:
             with self.alloc(**allocs):
                 return self.run()
@@ -59,71 +71,71 @@ class BasicExecution:
         init = self.init
         iterate = self.iterate
         apply = self.apply
-        finish = self.finish
 
         trs = [(tr.publish, self.tracing(tr.trace))
                for tr in self.traces]
 
         if trs:
-            def trace(pr, st):
+            def trace(prm, stt):
                 for pub, tr in trs:
-                    pub(tr(pr, st))
+                    pub(*tr(prm, stt))
         else:
             def trace(_, __):
                 pass
 
+        LOG.info(f"engine initializes {self.model} simultion")
         init(params, state)
         trace(params, state)
 
-        for i in range(self.alloc.n_steps.value):
+        LOG.info(f"engine iterates {self.model} simultion")
+        for _ in range(self.alloc.n_steps.value):
             iterate(params, state)
             apply(params, state)
             trace(params, state)
-
-        finish(params, state)
+        LOG.info(f"engine finished {self.model} simultion")
 
         return self.frame(state)
 
     @contextmanager
-    def resolving(self):
+    def binding(self):
         """Context where this engine should resolve accessors of the model."""
-        with self.model.resolving(steps=self.resolve_steps,
-                                  state=self.resolve_state,
-                                  params=self.resolve_params,
-                                  random=self.resolve_random,
-                                  derives=self.resolve_derives):
+        LOG.debug(f"engine registers itself as resolver for {self.model}")
+        with self.model.binding(steps=self.resolve_steps,
+                                state=self.resolve_state,
+                                params=self.resolve_params,
+                                random=self.resolve_random,
+                                derives=self.resolve_derives):
             yield
 
     @lazy
     def init(self):
         """Cache of the initialization of the model."""
-        with self.resolving():
-            return self.compile(self.model.init(), vectorize=True)
+        LOG.debug(f"engine resolves {self.model.init}")
+        with self.binding():
+            return self.compile(self.model.init, vectorize=True)
 
     @lazy
     def iterate(self):
         """Cache of the iteration of the model."""
-        with self.resolving():
-            return self.compile(self.model.iterate(), vectorize=True)
+        LOG.debug(f"engine resolves {self.model.iterate}")
+        with self.binding():
+            return self.compile(self.model.iterate, vectorize=True)
 
     @lazy
     def apply(self):
         """Cache of the application of the model."""
-        with self.resolving():
-            return self.compile(self.model.apply(), vectorize=False)
-
-    @lazy
-    def finish(self):
-        """Cache of the finalization of the model."""
-        with self.resolving():
-            return self.compile(self.model.finish(), vectorize=True)
+        LOG.debug(f"engine resolves {self.model.apply}")
+        with self.binding():
+            return self.compile(self.model.apply, vectorize=False)
 
     def params(self):
         """Parameters as passed to optimized simulation methods."""
+        LOG.info(f"engine creates params arg")
         return self.alloc
 
     def state(self):
         """State as passed to optimized simulation methods."""
+        LOG.info(f"engine creates state arg")
         shape = (self.alloc.n_samples.value,
                  sum(len(v) if isinstance(v, list) else 1
                      for v in self.model.state.specs.values()))
@@ -131,41 +143,55 @@ class BasicExecution:
 
     def frame(self, state):
         """Create a dataframe for the given state representation."""
+        LOG.debug(f"engine creates frame of given state")
         columns = sum([[n for _ in s] if isinstance(s, list) else [n]
                        for n, s in self.model.state.specs.items()], [])
         return pd.DataFrame(state, columns=columns)
 
-    def resolve_steps(self, name, impl):
+    def resolve_steps(self, name, step):
         """Create an accessor for a step implementation method."""
-        return impl
+        LOG.debug(f"engine resolves step {name}")
+
+        return step.impl
 
     def resolve_state(self, name, typ):
         """Create an accessor for parts of the state."""
+        LOG.debug(f"engine resolves state {name}")
+
         idx = sum(([n for _ in s] if isinstance(s, list) else [n]
                    for n, s in self.model.state.specs.items()), []).index(name)
+
         if isinstance(typ, list):
+            LOG.debug(f"engine resolved state {name} to {idx}:{idx + len(typ)}")
             return list(range(idx, idx + len(typ)))
-        else:
-            return idx
+
+        LOG.debug(f"engine resolved state {name} to {idx:d}")
+        return idx
 
     def resolve_params(self, name, typ):
         """Create an accessor for a parameter value."""
+        LOG.debug(f"engine resolves param {name}")
+
         if isinstance(typ, dict):
             def define(key):
                 def dct_getter(params):
-                    return getattr(params, name).value[key]
+                    return np.array(getattr(params, name).value[key])
                 return dct_getter
 
             Getters = namedtuple('Getters', list(typ))
             getters = {n: define(n) for n in typ}
+            LOG.debug(f"engine resolved param {name} to {getters}")
             return Getters(**getters)
         else:
             def std_getter(params):
                 return getattr(params, name).value
+            LOG.debug(f"engine resolved param {name} to {std_getter}")
             return std_getter
 
-    def resolve_random(self, name, typ):
+    def resolve_random(self, name, _):
         """Create an accessor for a random distribution."""
+        LOG.debug(f"engine resolves random {name}")
+
         def getter(params):
             alloc = getattr(params, name)
             sample = alloc.param.sample()
@@ -175,6 +201,7 @@ class BasicExecution:
     def resolve_derives(self, name, spec):
         """Create an accessor for a derivied parameter."""
         fn, deps = spec
+        LOG.debug(f"engine resolves derives {name}")
 
         def getter(params):
             return fn(*[getattr(params, n).value for n in deps])
@@ -183,11 +210,13 @@ class BasicExecution:
 
     def resolve_function(self, function):
         """Resolve a function that is called during simulation."""
-        return self.resolve_steps(function.__name__, function)
+        LOG.debug(f"engine resolves function {function.__name__}")
+        return function
 
     def compile(self, impl, vectorize=True):
         """Create a compiled version of a step implementation."""
         # TODO more doc
+        LOG.info(f"engine compiles {impl.__name__} (vectorize=True)")
         if vectorize:
             def vector(params, state):
                 for i in range(state.shape[0]):
@@ -204,7 +233,7 @@ class NumbaExecution(BasicExecution):
                  use_gufunc=True, parallel=True, fastmath=True):
         """Create a new numba engine instance.
 
-        /reParameters
+        Parameters
         ----------
         use_gufunc : bool
             execute vectorizing simulation methods with `numba.guvectorize`
@@ -225,22 +254,23 @@ class NumbaExecution(BasicExecution):
 
     def vjit(self, dtypes, shapes,
              fastmath=None, nopython=None, parallel=None):
+        """Vectorized version of jit."""
         if self.use_gufunc:
-            return nb.guvectorize(dtypes, shapes, 
+            return nb.guvectorize(dtypes, shapes,
                                   fastmath=fastmath, nopython=nopython,
                                   target='parallel' if parallel else 'cpu')
         else:
             def vectorize(impl):
+                impl = self.njit(impl)
                 ext = [tuple(dt.dtype[:, :] if i == 1 else dt
                              for i, dt in enumerate(dts))
                        for dts in dtypes]
 
                 @self.njit(ext,
                            fastmath=fastmath,
-                           nopython=nopython,
                            parallel=parallel)
                 def vect(params, state):
-                    for i in nb.prange(len(state)):
+                    for i in nb.prange(len(state)): # pylint: disable=E1133
                         impl(params, state[i])
                 return vect
             return vectorize
@@ -252,6 +282,8 @@ class NumbaExecution(BasicExecution):
                    "perhaps you forgot the @sim.step decorator")
             raise AttributeError(msg.format(impl))
 
+        LOG.info(f"engine compiles {impl.py_func.__name__}"
+                 f"(vectorize={vectorize})")
         if vectorize:
             return self.vjit([(nb.float64[:], nb.float64[:])], '(m),(n)',
                              fastmath=self.fastmath,
@@ -265,6 +297,7 @@ class NumbaExecution(BasicExecution):
     @lazy
     def layout(self):
         """Cache for positioning parameters into an numpy array."""
+        LOG.info(f"engine creates layout for parameters.")
         layout = []
 
         for name, spec in self.model.params.specs.items():
@@ -305,6 +338,7 @@ class NumbaExecution(BasicExecution):
 
     def params(self):
         """Create a numpy array for the parameters of the simulation."""
+        LOG.info(f"engine creates parameters numpy array")
         params = []
 
         for name, spec in self.model.params.specs.items():
@@ -352,7 +386,7 @@ class NumbaExecution(BasicExecution):
                 real = np.array(real)
 
             if isinstance(virt, np.ndarray):
-                assert(len(virt.ravel()) >= len(real.ravel()))
+                assert len(virt.ravel()) >= len(real.ravel())
                 params.extend(real.shape)
                 params.extend(real.ravel())
                 params.extend([0] * (len(virt.ravel()) - len(real.ravel())))
@@ -368,12 +402,15 @@ class NumbaExecution(BasicExecution):
 
         return np.array(params, dtype=float)
 
-    def resolve_steps(self, name, impl):
+    def resolve_steps(self, name, step):
         """Return the binding for the given step."""
-        return self.njit(impl)
+        LOG.debug(f"engine resolves step {name}")
+        return self.njit(step.impl)
 
     def resolve_params(self, name, typ):
         """Return the binding for a given parameter."""
+        LOG.debug(f"engine resolves param {name}")
+
         if isinstance(typ, dict):
             lx = self.layout.index(name)
 
@@ -387,6 +424,7 @@ class NumbaExecution(BasicExecution):
             Getters = namedtuple('Getters', list(typ))
             getters = {n: define(self.layout.index((name, n)), ts)
                        for n, ts in typ.items()}
+            LOG.debug(f"engine resolved param {name} to {getters}")
             return Getters(**getters)
 
         else:
@@ -395,10 +433,13 @@ class NumbaExecution(BasicExecution):
             @self.njit
             def std_getter(params):
                 return typ(params[idx])
+            LOG.debug(f"engine resolved param {name} to {std_getter}")
             return std_getter
 
-    def resolve_random(self, name, typ):
+    def resolve_random(self, name, _):
         """Return the binding for a given distribution parameter."""
+        LOG.debug(f"engine resolves random {name}")
+
         dist = getattr(self.alloc, name)
         idx = self.layout.index(name)
 
@@ -421,6 +462,7 @@ class NumbaExecution(BasicExecution):
 
     def resolve_derives(self, name, spec):
         """Return the binding for a give derived parameter."""
+        LOG.debug(f"engine resolves derives {name}")
         idx = self.layout.index(name)
 
         fn, deps = spec
@@ -465,8 +507,14 @@ class NumbaExecution(BasicExecution):
 
         return der
 
+    def resolve_function(self, function):
+        """Return the binding for the given step."""
+        LOG.debug(f"engine resolves function {function.__name__}")
+        return self.njit(function)
+
 
 class PseudoNumbaExecution(NumbaExecution):
+    """Engine for debugging with same structure as NumbaExecution."""
     def __init__(self, model, alloc):
         super().__init__(model, alloc, use_gufunc=False)
 
@@ -484,6 +532,45 @@ class PseudoNumbaExecution(NumbaExecution):
             return self.vjit([()], None)(impl)
         else:
             return self.njit(impl)
+
+
+class NonTracingNumbaEngine(NumbaExecution):
+    def __init__(self, model, alloc):
+        super().__init__(model, alloc, use_gufunc=False)
+
+    @lazy
+    def loop(self):
+        if self.traces:
+            raise ValueError(f"Can't run {type(self).__name__} with traces!")
+
+        init = self.init
+        iterate = self.iterate
+        apply = self.apply
+
+        steps = self.alloc.n_steps.value
+
+        @nb.njit
+        def loop(params, state):
+            init(params, state)
+            for _ in range(steps):
+                iterate(params, state)
+                apply(params, state)
+            return state
+
+        with self.binding():
+            return self.compile(loop, vectorize=False)
+
+    def run(self, **allocs):
+        if allocs:
+            with self.alloc(**allocs):
+                return self.run()
+
+        params = self.params()
+        state = self.state()
+
+        state = self.loop(params, state)
+
+        return self.frame(state)
 
 
 DefaultExecution = Execution = NumbaExecution

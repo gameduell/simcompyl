@@ -7,7 +7,10 @@ from pandas.testing import assert_frame_equal
 class Generate(sim.Model):
     @sim.step
     def init(self):
-        init = self.params(init=float)
+        init, _ = self.params(init=float,
+                              complex={'a': [int]*5,
+                                       'b': [float]*5,
+                                       'c': [float]*5})
         speed = self.random(speed=float)
         grow, const, alt = self.state(grow=float, const=float, alt=float)
 
@@ -34,8 +37,11 @@ class Simulation(sim.Allocation):
 
 class Amounts(sim.Allocation):
     init = sim.Param("Initial Value", 0)
-    speed = sim.Normal("speed", 0, .2, help="Distribution of speeds")
-    radius = sim.Normal("Radius", 1, .2, help="Distribution of radius")
+    speed = sim.Normal("speed", 0, .2, descr="Distribution of speeds")
+    radius = sim.Normal("Radius", 1, .2, descr="Distribution of radius")
+    complex = sim.Param("Complex", {'a': [1, 2, 3],
+                                    'b': [0, 2, 1],
+                                    'c': [1, 4, 9]})
 
 
 def test_tracing(engine):
@@ -52,6 +58,9 @@ def test_tracing(engine):
     assert "State" in str(tr)
     assert all(c in repr(tr) for c in tr.columns)
 
+    assert tr.label('baz').name == 'baz'
+    assert tr.label('baz').take(6).name == 'baz'
+
     with exec.trace(tr.take(6)) as td:
         exec.run()
 
@@ -60,6 +69,16 @@ def test_tracing(engine):
                        td.const.unstack()[1:])
     assert_frame_equal(td.alt.unstack().diff().abs()[1:],
                        2 * td.const.unstack().abs()[1:])
+
+
+    with exec.trace(tr.take(6), skip=4) as td:
+        exec.run()
+
+    assert td.shape == (6 * 6, 3)
+    assert_frame_equal(td.grow.unstack().diff()[1:],
+                       td.const.unstack()[1:]*4)
+    assert_frame_equal(td.alt.unstack(),
+                       td.const.unstack())
 
     with exec.trace(tr.mean()) as td:
         exec.run()
@@ -77,7 +96,7 @@ def test_tracing(engine):
     assert_frame_equal(td.grow.unstack().diff()[1:],
                        td.const.unstack()[1:])
 
-    mr = (2 * model.grow - model.alt).name('math')
+    mr = (2 * model['grow'] - model['alt']).naming('math')
     with exec.trace(mr.take(6), tr.take(6)) as (md, td):
         exec.run()
     assert md.shape == (21 * 6, 1)
@@ -104,6 +123,15 @@ def test_tracing(engine):
         exec.run()
     assert fd.shape == (21 * 6, 3)
     assert (fd.alt > 0).all(None)
+
+
+    cr = tr[model['const'] >= model['alt']]
+    with exec.trace(cr.mean()) as cd:
+        exec.run()
+
+    assert cd.shape == (21, 3)
+    assert (cd.const[1:] >= cd.alt[1:]).all(None)
+
 
     with exec.trace(fr.mean()) as fd:
         exec.run()
@@ -134,8 +162,18 @@ def test_tracing(engine):
     assert ps.shape == (21, 1)
     assert (ps == 6).all(None)
 
+    pr = sim.trace.Param(complex={'a': [int]*3, 'c': [float]*3})
+    with exec.trace(pr) as ps:
+        exec.run()
+
+    assert ps.shape == (3 * 21, 2)
+    assert list(ps.columns) == ['complex.a', 'complex.c']
+
 
 def test_invalids():
+    with pytest.raises(TypeError):
+        sim.Trace(a=int, b=lambda a: 2 * a)
+
     with pytest.raises(AttributeError):
         sim.Trace(a=int, b=int).c
 
@@ -146,7 +184,7 @@ def test_invalids():
         sim.Trace(a=int, b=int) / sim.Trace(c=int, d=int)
 
     with pytest.raises(ValueError):
-        sim.Trace(a=int, b=int).name("a", "b", "c")
+        sim.Trace(a=int, b=int).naming("a", "b", "c")
 
     with pytest.raises(NotImplementedError):
         sim.Trace(a=int, b=int)[...]
@@ -168,9 +206,6 @@ def test_invalids():
     model = Generate()
     with pytest.raises(KeyError):
         model['alt', 'nil']
-
-    with pytest.raises(AttributeError):
-        model.nil
 
 
 def test_holoview():
@@ -196,23 +231,43 @@ def test_holoview():
     hv.render(dm)  # trigger rendering, so dynamic map gets filled
 
     over, = dm
-    gc, cc, ac, = over
+    assert len(over) == 6 * 3
+    crv, *_ = over
 
     assert isinstance(dm, hv.DynamicMap)
     assert isinstance(over, hv.NdOverlay)
-    assert isinstance(gc, hv.Curve)
-    assert gc.kdims == [hv.Dimension('trace')]
-    assert gc.vdims == [hv.Dimension('value')]
-    assert isinstance(cc, hv.Curve)
-    assert cc.kdims == [hv.Dimension('trace')]
-    assert cc.vdims == [hv.Dimension('value')]
-    assert isinstance(ac, hv.Curve)
-    assert ac.kdims == [hv.Dimension('trace')]
-    assert ac.vdims == [hv.Dimension('value')]
+    assert isinstance(crv, hv.Curve)
+    assert crv.kdims == [hv.Dimension('trace')]
+    assert crv.vdims == [hv.Dimension('value')]
 
     bf = ht.buffer
-    assert len(bf.data) == 1
+    assert len(bf.data) == 6
     with exec.trace(ht):
         exec.run(n_steps=2)
     assert ht.buffer == bf
     assert len(bf.data) == 3 * 6
+
+    ht = tr.take(6).to(sim.trace.Holotrace, skip=4, batch=5)
+    with exec.trace(ht):
+        exec.run()
+        print(ht.traces)
+        print(ht.data)
+        assert ht.data.shape == (6 * 5, 3)
+
+    assert ht.data.shape == (6 * 6, 3)
+
+    ht = tr.take(6).to(sim.trace.Holotrace, skip=4, batch=100, timeout=10)
+    with exec.trace(ht):
+        exec.run()
+        assert ht.data.shape == (0, 3)
+
+    assert ht.data.shape == (6 * 6, 3)
+
+    ht = tr.take(6).to(sim.trace.Holotrace, skip=4, batch=100, timeout=.001)
+    with exec.trace(ht):
+        exec.run()
+        assert ht.data.shape[0] > 0
+
+    assert ht.data.shape == (6 * 6, 3)
+
+

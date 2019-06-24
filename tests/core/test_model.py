@@ -12,24 +12,26 @@ def test_basics():
     assert isinstance(mdl.init, Step)
     assert isinstance(mdl.iterate, Step)
     assert isinstance(mdl.apply, Step)
-    assert isinstance(mdl.finish, Step)
 
-    assert isinstance(mdl.init(), FunctionType)
-    assert isinstance(mdl.iterate(), FunctionType)
-    assert isinstance(mdl.apply(), FunctionType)
-    assert isinstance(mdl.finish(), FunctionType)
+    assert isinstance(mdl.init.impl, FunctionType)
+    assert isinstance(mdl.iterate.impl, FunctionType)
+    assert isinstance(mdl.apply.impl, FunctionType)
 
-    mdl.init()(None, None)
-    mdl.iterate()(None, None)
-    mdl.apply()(None, None)
-    mdl.finish()(None, None)
+    mdl.init.impl(None, None)
+    mdl.iterate.impl(None, None)
+    mdl.apply.impl(None, None)
+
+    with pytest.raises(TypeError):
+        mdl.init()
+
+    assert 'Model.apply' in repr(mdl.apply)
 
 
 def test_specs():
     mdl = sim.Model()
 
     assert dict(mdl.params) == {'n_steps': int, 'n_samples': int}
-    assert set(mdl.steps) == {'init', 'iterate', 'apply', 'finish'}
+    assert set(mdl.steps) == {'init', 'iterate', 'apply'}
 
     assert len(mdl.params(foo={'a': [int], 'b': [bool]},
                           baz=float)) == 2
@@ -98,11 +100,11 @@ def test_specs():
             return spec
         return resolve
 
-    with mdl.resolving(steps=trace('steps'),
-                       state=trace('state'),
-                       params=trace('params'),
-                       random=trace('random'),
-                       derives=trace('derived')):
+    with mdl.binding(steps=trace('steps'),
+                     state=trace('state'),
+                     params=trace('params'),
+                     random=trace('random'),
+                     derives=trace('derived')):
         mdl.steps(init=...)
         mdl.state(foo=...)
         mdl.params(foo=...)
@@ -118,9 +120,9 @@ def test_graph():
     class Test(sim.Model):
         @sim.step
         def iterate(self):
-            _iter = super().iterate()
-            _foo = self.foo()
-            _bar = self.bar()
+            _iter = super().iterate
+            _foo = self.foo
+            _bar = self.bar
 
             def impl(params, state):
                 _iter(params, state)
@@ -144,8 +146,16 @@ def test_graph():
                 pass
             return impl
 
-    graph = Test().graph(rankdir='TD')
+    hier = Test().hier()
 
+    # TODO really test creation of model hierary
+    assert hier
+
+    graph = Test().graph(rankdir='TD')
+    # TODO really test creation of flow-graph
+    assert graph
+
+    graph = Test().graph(rankdir='LR', internals=True, details=False)
     # TODO really test creation of flow-graph
     assert graph
 

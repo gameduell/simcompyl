@@ -1,5 +1,4 @@
 from simcompyl.core.util import lazy, LazyDescriptor, Resolvable, Unresolved
-
 import pytest
 
 
@@ -65,7 +64,7 @@ def test_resolvable():
     def foo(c, b, a):
         return a, b, c
 
-    with res.resolving(foo):
+    with res.binding(foo):
         assert res.resolve(1, a=3, b=2) == (3, 2, 1)
     assert res.resolve(1, 2, a=3) == Unresolved(1, 2, a=3)
 

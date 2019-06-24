@@ -13,3 +13,4 @@ build
 coverage.xml
 coverage/lcov.info
 *.sw?
+tags

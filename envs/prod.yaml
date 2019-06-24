@@ -1,4 +1,4 @@
-name: simulhave-prod
+name: sim-prod
 channels:
   - pyviz
   - bokeh
@@ -16,5 +16,6 @@ dependencies:
   - holoviews
   - panel
   - bokeh
+  - graphviz
   - python-graphviz
 

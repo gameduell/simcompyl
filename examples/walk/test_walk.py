@@ -20,7 +20,27 @@ def test_execute(engine):
 
     out = exec.run(initial_energy=10)
 
-    limit = alloc.n_samples.value / 2
+    limit = alloc.n_samples.value / 4
+
+    assert set(out.columns) == {'x', 'y', 'energy'}
+    assert len(out.query('x**2 + y**2 < 10**2')) > limit
+    assert len(out.query('energy <= 0')) > limit
+
+    out = exec.run()
+    assert len(out.query('energy <= 0')) < limit
+
+
+def test_nontracing():
+    from . import walk
+
+    model = walk.ComplexWalk()
+    alloc = walk.Simulation() + walk.BasicDistance()
+
+    exec = sim.engine.NonTracingNumbaEngine(model, alloc)
+
+    out = exec.run(initial_energy=10)
+
+    limit = alloc.n_samples.value / 4
 
     assert set(out.columns) == {'x', 'y', 'energy'}
     assert len(out.query('x**2 + y**2 < 10**2')) > limit
@@ -42,7 +62,7 @@ def test_tracing(engine):
     with exec.trace(tr, skip=6) as pos:
         exec.run()
 
-    assert len(pos) == (alloc.n_steps.value + 1) * 12
+    assert len(pos) == (alloc.n_steps.value // 6 + 1) * 12
     assert list(pos.columns) == ['x', 'y']
 
     qr = (model(dist=lambda x, y: np.sqrt(x ** 2 + y ** 2))
