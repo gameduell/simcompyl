@@ -304,7 +304,7 @@ def test_distributions():
     check(con, bounds=(3, 6), typ=float, args=(3, 6))
 
     nor = sim.Normal("normal", 4., 2)
-    check(nor, typ=float, mode=(2, 6), args=(4., 2))
+    check(nor, typ=float, mode=(1, 7), args=(4., 2))
 
     exp = sim.Exponential("exponential", 1.5)
     check(exp, bounds=(0, None), typ=float, mode=(0, 2), args=(1.5,))
