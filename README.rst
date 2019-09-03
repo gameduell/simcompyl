@@ -2,6 +2,7 @@
 SimComPyl - composable, compiled and pure python
 ====
 |Build Status| |Coverage|
+------------------------------------------------
 
 A Framework for Discrete Time Simulations
 ----
@@ -35,3 +36,5 @@ Feature Overview
    :target: https://travis-ci.org/gameduell/simcompyl
 .. |Coverage| image:: https://coveralls.io/repos/github/gameduell/simcompyl/badge.svg?branch=master 
    :target: https://coveralls.io/github/gameduell/simcompyl?branch=master
+.. |Binder| image:: https://mybinder.org/badge_logo.svg
+   :target: https://mybinder.org/v2/gh/gameduell/simcompyl/master
