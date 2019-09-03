@@ -23,10 +23,12 @@ dependencies:
   - pymc3
   - mkl-service
 
+  - ipython
+  - jupyter
+  - rise
   - jupyterlab
   - pyviz_comms
   - nodejs
-  - rise
   # jupyter-labextension install @pyviz/jupyterlab_pyviz
 
   - pytest
