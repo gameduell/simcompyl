@@ -1,7 +1,7 @@
 
 SimComPyl - composable, compiled and pure python
 ====
-|Build Status| |Coverage|
+|Build Status| |Coverage| |Binder|
 ------------------------------------------------
 
 A Framework for Discrete Time Simulations

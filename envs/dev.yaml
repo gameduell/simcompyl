@@ -20,6 +20,9 @@ dependencies:
   - graphviz
   - python-graphviz
 
+  - pymc3
+  - mkl-service
+
   - jupyterlab
   - pyviz_comms
   - nodejs
