@@ -2,7 +2,7 @@ import pytest
 import simcompyl as sim
 
 
-@pytest.fixture(params=['BasicExecution',
+@pytest.fixture(params=['DebugingExecution',
                         'PseudoNumbaExecution',
                         pytest.param('NumbaExecution', marks=pytest.mark.integration)])
 def engine(request):
