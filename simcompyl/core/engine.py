@@ -13,10 +13,8 @@ from .trace import Trace
 
 LOG = logging.getLogger(__name__)
 
-
 class BasicExecution:
     """Engine to execute a simulation defined by a model."""
-
 
     def __init__(self, model, alloc):
         self.model = model
@@ -224,6 +222,32 @@ class BasicExecution:
             return vector
         else:
             return impl
+        
+        
+class State:
+    """Wrapper around numpy state with restricted access to spot errors."""
+    def __init__(self, state):
+        self.state = state
+        
+    def __getitem__(self, definition):
+        return self.state[definition]
+    
+    def __len__(self):
+        return len(self.state)
+    
+    @property
+    def shape(self):
+        return self.state.shape
+        
+        
+class DebugingExecution(BasicExecution):
+    """Execution Engine which helps debugging and spotting errors."""
+    def state(self):
+        state = super().state()
+        return State(state)
+    
+    def frame(self, state):
+        return super().frame(state.state)
 
 
 class NumbaExecution(BasicExecution):

@@ -43,7 +43,7 @@ get_ipython().run_line_magic('pycat', 'examples/walk/walk.py')
 # 
 # Now we can initalize an instance of the model and the allocations:
 
-# In[3]:
+# In[4]:
 
 
 model = walk.ComplexWalk()
@@ -52,13 +52,13 @@ alloc = walk.BasicDistance() + walk.Simulation()
 
 # As the structure of the model is defined with the `step` annotation and resolving is done before the actual call inside the implementation, the model can be inspected without execution:
 
-# In[4]:
+# In[5]:
 
 
 model.graph(rankdir='LR')
 
 
-# In[9]:
+# In[6]:
 
 
 alloc
@@ -69,25 +69,25 @@ alloc
 
 # To run the definitions inside the model, we create an `Execution` object, that will create optmized code for fast execution. The first execution therefore will take more time, but further executions, even when chaning parameters, will be fast.
 
-# In[10]:
+# In[7]:
 
 
 exec = sim.Execution(model, alloc)
 
 
-# In[11]:
+# In[8]:
 
 
 get_ipython().run_line_magic('time', 'out = exec.run()')
 
 
-# In[12]:
+# In[9]:
 
 
 get_ipython().run_line_magic('time', 'out = exec.run(initial_energy=2000);')
 
 
-# In[13]:
+# In[10]:
 
 
 out.head()
@@ -95,7 +95,7 @@ out.head()
 
 # This way, one can execute the model with a big sample size in a short amount of time:
 
-# In[14]:
+# In[11]:
 
 
 get_ipython().run_line_magic('time', 'out = exec.run(n_steps=500, n_samples=1_000_000)')
@@ -180,6 +180,58 @@ spread(datashade(out,
 
 
 get_ipython().run_cell_magic('time', '', 'with exec.trace(pos):\n    exec.run(n_steps=500)')
+
+
+# Debugging and the Execution Engine
+# ---
+
+# In[1]:
+
+
+import simcompyl as sim
+from examples.walk import walk
+
+
+# In[11]:
+
+
+class Error(walk.Walk):
+    @sim.step
+    def walk(self):
+        _walk = super().walk
+        
+        def swap(params, state):
+            return _walk(state, params)
+        return swap
+    
+model = Error()
+alloc = walk.Simulation() + walk.BasicDistance()
+
+
+# In[12]:
+
+
+default = sim.Execution(model, alloc)
+out = default.run()
+
+
+# In[13]:
+
+
+out.plot.scatter('x', 'y', alpha=.1)
+
+
+# In[14]:
+
+
+basic = sim.engine.DebugingExecution(model, alloc)
+out = basic.run()
+
+
+# In[15]:
+
+
+out.plot.scatter('x', 'y', alpha=.1)
 
 
 # Outlook
