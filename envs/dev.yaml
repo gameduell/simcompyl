@@ -29,7 +29,14 @@ dependencies:
   - jupyterlab
   - pyviz_comms
   - nodejs
-  # jupyter-labextension install @pyviz/jupyterlab_pyviz
+  - jupyterlab-git
+  # jupyter labextension install \
+  #   @pyviz/jupyterlab_pyviz \
+  #   @jupyterlab/toc \
+  #   @jupyterlab/git \
+  #   @jupyterlab/shortcutui \
+  #   jupyterlab_filetree
+
 
   - pytest
   - pytest-watch
