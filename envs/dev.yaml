@@ -30,6 +30,7 @@ dependencies:
   - pyviz_comms
   - nodejs
   - jupyterlab-git
+  - jupyter_conda
   # jupyter labextension install \
   #   @pyviz/jupyterlab_pyviz \
   #   @jupyterlab/toc \

@@ -411,9 +411,9 @@ class Model:
 
     def __setup__(self):
         """Register the basic layout of the model."""
-        self.init
-        self.iterate
-        self.apply
+        return (self.init,
+                self.iterate,
+                self.apply)
 
     def __dir__(self):
         """List state keys as well."""
@@ -613,4 +613,5 @@ class Model:
         """
         def impl(_, __):
             pass
+
         return impl

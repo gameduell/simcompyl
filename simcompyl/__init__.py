@@ -22,3 +22,5 @@ logging.basicConfig(level=logging.INFO)
 __all__ = ['Model', 'step', 'Allocation', 'Param', 'Distribution', 'Execution',
            'Uniform', 'Bernoulli', 'Continuous', 'Normal', 'Exponential',
            'trace', 'Trace', 'engine']
+
+__version__ = "0.1"

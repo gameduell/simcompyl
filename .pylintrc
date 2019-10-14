@@ -32,7 +32,7 @@ disable=parameter-unpacking,
         unpacking-in-except,
         backtick,
         locally-disabled,
-        logging-fstring-interpolation,
+        logging-format-interpolation,
         file-ignored,
         suppressed-message,
         useless-suppression,
@@ -146,8 +146,6 @@ check-str-concat-over-line-jumps=no
 
 [LOGGING]
 logging-modules=logging
-logging-format-style=old
-
 
 [BASIC]
 argument-naming-style=snake_case

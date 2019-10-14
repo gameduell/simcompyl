@@ -1,0 +1,6 @@
+.git
+.tox
+.ipynb_checkpoints
+tags
+examples
+docs
